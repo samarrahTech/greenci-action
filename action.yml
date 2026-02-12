@@ -1,0 +1,65 @@
+name: 'GreenCI - AI E2E Test Agent'
+description: 'AI-powered E2E test generation and self-healing for pull requests'
+author: 'GreenCI'
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  api-key:
+    description: 'GreenCI API key'
+    required: true
+  mode:
+    description: 'Operation mode (generate or migrate)'
+    required: false
+    default: 'generate'
+  cypress-dir:
+    description: 'Cypress tests directory (for migrate mode)'
+    required: false
+    default: 'cypress/e2e'
+  llm-provider:
+    description: 'LLM provider (greenci, bedrock, azure-openai, openai, ollama)'
+    required: false
+    default: 'greenci'
+  llm-model:
+    description: 'LLM model name'
+    required: false
+    default: ''
+  aws-region:
+    description: 'AWS region for Bedrock'
+    required: false
+    default: 'us-east-1'
+  test-dir:
+    description: 'Directory to save generated tests'
+    required: false
+    default: 'e2e'
+  base-url:
+    description: 'App base URL for E2E tests'
+    required: false
+    default: 'http://localhost:3000'
+  max-retries:
+    description: 'Max self-healing retries'
+    required: false
+    default: '2'
+  auto-commit:
+    description: 'Auto-commit passing tests to PR'
+    required: false
+    default: 'true'
+  greenci-api-url:
+    description: 'GreenCI API endpoint'
+    required: false
+    default: 'https://api.greenci.ai'
+
+outputs:
+  tests-generated:
+    description: 'Number of tests generated'
+  tests-passed:
+    description: 'Number of tests passed'
+  tests-failed:
+    description: 'Number of tests failed'
+  report-url:
+    description: 'URL to the PR comment with full report'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
