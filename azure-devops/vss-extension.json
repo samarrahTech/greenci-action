@@ -1,0 +1,48 @@
+{
+  "manifestVersion": 1,
+  "id": "greenci-task",
+  "name": "GreenCI - AI E2E Test Agent",
+  "version": "0.1.0",
+  "publisher": "GreenCI",
+  "description": "AI-powered E2E test generation and self-healing for Azure DevOps pipelines",
+  "categories": ["Azure Pipelines"],
+  "targets": [
+    {
+      "id": "Microsoft.VisualStudio.Services"
+    }
+  ],
+  "icons": {
+    "default": "images/icon.png"
+  },
+  "content": {
+    "details": {
+      "path": "README.md"
+    }
+  },
+  "files": [
+    {
+      "path": "task"
+    }
+  ],
+  "contributions": [
+    {
+      "id": "greenci-task",
+      "type": "ms.vss-distributed-task.task",
+      "targets": ["ms.vss-distributed-task.tasks"],
+      "properties": {
+        "name": "task"
+      }
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "uri": "https://github.com/greenci/greenci-action"
+  },
+  "tags": [
+    "E2E Testing",
+    "AI",
+    "Playwright",
+    "Test Generation",
+    "Self-Healing"
+  ]
+}

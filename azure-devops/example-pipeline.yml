@@ -1,0 +1,128 @@
+# GreenCI Azure DevOps Pipeline Example
+# AI-powered E2E test generation and self-healing
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: NODE_VERSION
+    value: '20'
+  - name: BASE_URL
+    value: 'http://localhost:3000'
+
+stages:
+  - stage: Test
+    displayName: 'Build & Test with GreenCI'
+    jobs:
+      - job: GreenCI
+        displayName: 'AI E2E Test Generation'
+        steps:
+          # 1. Checkout code
+          - checkout: self
+            persistCredentials: true
+            fetchDepth: 0  # Full history for git diff
+
+          # 2. Setup Node.js
+          - task: NodeTool@0
+            displayName: 'Install Node.js $(NODE_VERSION)'
+            inputs:
+              versionSpec: '$(NODE_VERSION)'
+
+          # 3. Install dependencies
+          - script: npm ci
+            displayName: 'Install dependencies'
+
+          # 4. Build your application (adjust as needed)
+          - script: npm run build
+            displayName: 'Build application'
+
+          # 5. Start application in background (adjust as needed)
+          - script: |
+              npm start &
+              sleep 10  # Wait for app to start
+            displayName: 'Start application'
+
+          # 6. Install Playwright browsers
+          - script: npx playwright install --with-deps chromium
+            displayName: 'Install Playwright'
+
+          # 7. Run GreenCI
+          - task: GreenCI@0
+            displayName: 'Run GreenCI AI Tests'
+            inputs:
+              apiKey: '$(GREENCI_API_KEY)'
+              baseUrl: '$(BASE_URL)'
+              testDir: 'e2e'
+              mode: 'generate'
+              provider: 'greenci'
+              maxRetries: '2'
+              autoCommit: true
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+          # 8. Publish test results (optional)
+          - task: PublishTestResults@2
+            displayName: 'Publish Test Results'
+            condition: always()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/test-results/**/*.xml'
+              mergeTestResults: true
+              testRunTitle: 'GreenCI E2E Tests'
+
+          # 9. Publish Playwright report (optional)
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Playwright Report'
+            condition: always()
+            inputs:
+              targetPath: 'playwright-report'
+              artifactName: 'playwright-report'
+
+---
+# Alternative: Manual trigger pipeline
+# Use this for on-demand test generation
+
+# trigger: none
+#
+# schedules:
+#   - cron: '0 6 * * 1-5'
+#     displayName: 'Weekday morning run'
+#     branches:
+#       include:
+#         - main
+#
+# pool:
+#   vmImage: 'ubuntu-latest'
+#
+# steps:
+#   - checkout: self
+#     persistCredentials: true
+#     fetchDepth: 0
+#
+#   - task: NodeTool@0
+#     inputs:
+#       versionSpec: '20'
+#
+#   - script: npm ci && npm run build && npm start &
+#     displayName: 'Setup'
+#
+#   - script: npx playwright install --with-deps chromium
+#     displayName: 'Install Playwright'
+#
+#   - task: GreenCI@0
+#     inputs:
+#       apiKey: '$(GREENCI_API_KEY)'
+#       baseUrl: 'http://localhost:3000'
+#       mode: 'generate'

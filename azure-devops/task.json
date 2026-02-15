@@ -1,0 +1,113 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "name": "GreenCI",
+  "friendlyName": "GreenCI - AI E2E Test Agent",
+  "description": "AI-powered E2E test generation and self-healing for pull requests",
+  "helpMarkDown": "[Learn more about GreenCI](https://greenci.ai)",
+  "category": "Test",
+  "author": "GreenCI",
+  "version": {
+    "Major": 0,
+    "Minor": 1,
+    "Patch": 0
+  },
+  "instanceNameFormat": "GreenCI $(mode)",
+  "inputs": [
+    {
+      "name": "apiKey",
+      "type": "string",
+      "label": "GreenCI API Key",
+      "required": true,
+      "helpMarkDown": "Your GreenCI API key (starts with gci_)"
+    },
+    {
+      "name": "baseUrl",
+      "type": "string",
+      "label": "Application Base URL",
+      "defaultValue": "http://localhost:3000",
+      "required": false,
+      "helpMarkDown": "Base URL of the application under test"
+    },
+    {
+      "name": "testDir",
+      "type": "string",
+      "label": "Test Output Directory",
+      "defaultValue": "e2e",
+      "required": false,
+      "helpMarkDown": "Directory to save generated tests"
+    },
+    {
+      "name": "mode",
+      "type": "pickList",
+      "label": "Operation Mode",
+      "defaultValue": "generate",
+      "required": false,
+      "options": {
+        "generate": "Generate Tests",
+        "migrate": "Migrate Cypress to Playwright"
+      },
+      "helpMarkDown": "Operation mode: generate new tests or migrate from Cypress"
+    },
+    {
+      "name": "provider",
+      "type": "pickList",
+      "label": "LLM Provider",
+      "defaultValue": "greenci",
+      "required": false,
+      "options": {
+        "greenci": "GreenCI (Default)",
+        "openai": "OpenAI",
+        "azure-openai": "Azure OpenAI",
+        "bedrock": "AWS Bedrock",
+        "ollama": "Ollama"
+      },
+      "helpMarkDown": "LLM provider for test generation"
+    },
+    {
+      "name": "model",
+      "type": "string",
+      "label": "LLM Model",
+      "defaultValue": "",
+      "required": false,
+      "helpMarkDown": "Specific LLM model name (optional)"
+    },
+    {
+      "name": "maxRetries",
+      "type": "string",
+      "label": "Max Self-Healing Retries",
+      "defaultValue": "2",
+      "required": false,
+      "helpMarkDown": "Maximum number of self-healing attempts for failed tests"
+    },
+    {
+      "name": "autoCommit",
+      "type": "boolean",
+      "label": "Auto-commit Passing Tests",
+      "defaultValue": "true",
+      "required": false,
+      "helpMarkDown": "Automatically commit passing tests to the PR branch"
+    },
+    {
+      "name": "greenCIApiUrl",
+      "type": "string",
+      "label": "GreenCI API URL",
+      "defaultValue": "https://api.greenci.ai",
+      "required": false,
+      "helpMarkDown": "GreenCI API endpoint URL"
+    },
+    {
+      "name": "cypressDir",
+      "type": "string",
+      "label": "Cypress Tests Directory",
+      "defaultValue": "cypress/e2e",
+      "required": false,
+      "helpMarkDown": "Cypress tests directory (for migrate mode)"
+    }
+  ],
+  "execution": {
+    "Node20": {
+      "target": "dist/index.js"
+    }
+  }
+}
