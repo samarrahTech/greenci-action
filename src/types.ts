@@ -1,4 +1,4 @@
-export type OperationMode = 'generate' | 'migrate';
+export type OperationMode = 'generate' | 'generate-only' | 'migrate';
 
 export interface ActionConfig {
   apiKey: string;

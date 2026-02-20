@@ -67,6 +67,12 @@ class GreenCIClient implements ILLMClient {
     core.info(`Calling GreenCI API at ${config.greenCIApiUrl}/v1/generate`);
 
     try {
+      // Build diff from patches
+      const diff = context.modifiedFiles
+        .map((f) => f.patch || '')
+        .filter(Boolean)
+        .join('\n');
+
       const response = await fetch(`${config.greenCIApiUrl}/v1/generate`, {
         method: 'POST',
         headers: {
@@ -75,15 +81,11 @@ class GreenCIClient implements ILLMClient {
         },
         body: JSON.stringify({
           context: {
-            routes: context.routes,
-            components: context.components,
-            apiEndpoints: context.apiEndpoints,
-            files: context.modifiedFiles.map((f) => ({
-              filename: f.filename,
-              status: f.status,
-              patch: f.patch,
-            })),
-            summary: context.summary,
+            diff,
+            changedFiles: context.modifiedFiles.map((f) => f.filename),
+            routes: context.routes.map((r) => r.path),
+            components: context.components.map((c) => c.name),
+            apis: context.apiEndpoints.map((e) => `${e.method} ${e.path}`),
           },
           config: {
             baseUrl: config.baseUrl,

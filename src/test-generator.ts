@@ -32,6 +32,25 @@ export async function generateAndRunTests(
   // 2. Write tests to disk
   await writeTests(generatedTests, workDir);
 
+  // 2b. If generate-only mode, skip running tests entirely
+  if (config.mode === 'generate-only') {
+    core.info('📝 Generate-only mode: skipping test execution');
+    return {
+      testsGenerated: generatedTests.length,
+      testsPassed: 0,
+      testsFailed: 0,
+      testsHealed: 0,
+      filesChanged: context.modifiedFiles.map((f) => f.filename),
+      duration: Date.now() - startTime,
+      tests: generatedTests.map((t) => ({
+        filename: t.filename,
+        passed: true, // Treat as passed for commit purposes
+        duration: 0,
+      })),
+      committedFiles: [],
+    };
+  }
+
   // 3. Run tests
   core.info('🏃 Running tests...');
   const initialResults = await runTests(generatedTests, config, workDir);

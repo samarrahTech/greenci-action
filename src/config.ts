@@ -10,8 +10,8 @@ export function getConfig(): ActionConfig {
   }
 
   const mode = (core.getInput('mode') || 'generate') as OperationMode;
-  if (mode !== 'generate' && mode !== 'migrate') {
-    throw new Error(`Invalid mode: ${mode}. Must be 'generate' or 'migrate'.`);
+  if (mode !== 'generate' && mode !== 'generate-only' && mode !== 'migrate') {
+    throw new Error(`Invalid mode: ${mode}. Must be 'generate', 'generate-only', or 'migrate'.`);
   }
 
   return {
@@ -23,7 +23,7 @@ export function getConfig(): ActionConfig {
     baseUrl: core.getInput('base-url') || 'http://localhost:3000',
     maxRetries: parseInt(core.getInput('max-retries') || '2', 10),
     autoCommit: (core.getInput('auto-commit') || 'true') === 'true',
-    greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
+    greenCIApiUrl: core.getInput('greenci-api-url') || 'https://greenci-api.softwarearct.workers.dev',
     mode,
     cypressDir: core.getInput('cypress-dir') || 'cypress/e2e',
   };

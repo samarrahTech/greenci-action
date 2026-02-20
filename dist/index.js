@@ -29970,8 +29970,8 @@ function getConfig() {
         throw new Error(`Invalid LLM provider: ${provider}. Must be one of: ${validProviders.join(', ')}`);
     }
     const mode = (core.getInput('mode') || 'generate');
-    if (mode !== 'generate' && mode !== 'migrate') {
-        throw new Error(`Invalid mode: ${mode}. Must be 'generate' or 'migrate'.`);
+    if (mode !== 'generate' && mode !== 'generate-only' && mode !== 'migrate') {
+        throw new Error(`Invalid mode: ${mode}. Must be 'generate', 'generate-only', or 'migrate'.`);
     }
     return {
         apiKey: core.getInput('api-key', { required: true }),
@@ -29982,7 +29982,7 @@ function getConfig() {
         baseUrl: core.getInput('base-url') || 'http://localhost:3000',
         maxRetries: parseInt(core.getInput('max-retries') || '2', 10),
         autoCommit: (core.getInput('auto-commit') || 'true') === 'true',
-        greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
+        greenCIApiUrl: core.getInput('greenci-api-url') || 'https://greenci-api.softwarearct.workers.dev',
         mode,
         cypressDir: core.getInput('cypress-dir') || 'cypress/e2e',
     };
@@ -30864,6 +30864,11 @@ class GreenCIClient {
     async generateTests(context, config) {
         core.info(`Calling GreenCI API at ${config.greenCIApiUrl}/v1/generate`);
         try {
+            // Build diff from patches
+            const diff = context.modifiedFiles
+                .map((f) => f.patch || '')
+                .filter(Boolean)
+                .join('\n');
             const response = await fetch(`${config.greenCIApiUrl}/v1/generate`, {
                 method: 'POST',
                 headers: {
@@ -30872,15 +30877,11 @@ class GreenCIClient {
                 },
                 body: JSON.stringify({
                     context: {
-                        routes: context.routes,
-                        components: context.components,
-                        apiEndpoints: context.apiEndpoints,
-                        files: context.modifiedFiles.map((f) => ({
-                            filename: f.filename,
-                            status: f.status,
-                            patch: f.patch,
-                        })),
-                        summary: context.summary,
+                        diff,
+                        changedFiles: context.modifiedFiles.map((f) => f.filename),
+                        routes: context.routes.map((r) => r.path),
+                        components: context.components.map((c) => c.name),
+                        apis: context.apiEndpoints.map((e) => `${e.method} ${e.path}`),
                     },
                     config: {
                         baseUrl: config.baseUrl,
@@ -31683,6 +31684,24 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     }
     // 2. Write tests to disk
     await (0, test_runner_1.writeTests)(generatedTests, workDir);
+    // 2b. If generate-only mode, skip running tests entirely
+    if (config.mode === 'generate-only') {
+        core.info('📝 Generate-only mode: skipping test execution');
+        return {
+            testsGenerated: generatedTests.length,
+            testsPassed: 0,
+            testsFailed: 0,
+            testsHealed: 0,
+            filesChanged: context.modifiedFiles.map((f) => f.filename),
+            duration: Date.now() - startTime,
+            tests: generatedTests.map((t) => ({
+                filename: t.filename,
+                passed: true, // Treat as passed for commit purposes
+                duration: 0,
+            })),
+            committedFiles: [],
+        };
+    }
     // 3. Run tests
     core.info('🏃 Running tests...');
     const initialResults = await (0, test_runner_1.runTests)(generatedTests, config, workDir);
