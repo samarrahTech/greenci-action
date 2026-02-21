@@ -23,7 +23,7 @@ export function getConfig(): ActionConfig {
     baseUrl: core.getInput('base-url') || 'http://localhost:3000',
     maxRetries: parseInt(core.getInput('max-retries') || '2', 10),
     autoCommit: (core.getInput('auto-commit') || 'true') === 'true',
-    greenCIApiUrl: core.getInput('greenci-api-url') || 'https://greenci-api.softwarearct.workers.dev',
+    greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
     mode,
     cypressDir: core.getInput('cypress-dir') || 'cypress/e2e',
   };
