@@ -30652,6 +30652,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
+const path = __importStar(__nccwpck_require__(6928));
 const config_1 = __nccwpck_require__(2973);
 const diff_parser_1 = __nccwpck_require__(6290);
 const context_builder_1 = __nccwpck_require__(3070);
@@ -30660,6 +30661,7 @@ const test_generator_1 = __nccwpck_require__(1779);
 const git_ops_1 = __nccwpck_require__(7482);
 const pr_reporter_1 = __nccwpck_require__(6183);
 const migrator_1 = __nccwpck_require__(1440);
+const trace_uploader_1 = __nccwpck_require__(8441);
 async function run() {
     try {
         const config = (0, config_1.getConfig)();
@@ -30740,7 +30742,14 @@ async function run() {
             const reportUrl = await (0, pr_reporter_1.postReport)(token, prContext, report);
             core.setOutput('report-url', reportUrl);
         }
-        // 7. Set outputs
+        // 7. Upload traces to dashboard
+        const projectId = core.getInput('project-id');
+        if (config.apiKey && projectId) {
+            const runIdStr = process.env.GITHUB_RUN_ID || 'unknown';
+            const testResultsDir = path.join(workDir, 'test-results');
+            await (0, trace_uploader_1.uploadTraces)(testResultsDir, config.greenCIApiUrl, config.apiKey, projectId, runIdStr);
+        }
+        // 8. Set outputs
         core.setOutput('tests-generated', String(report.testsGenerated));
         core.setOutput('tests-passed', String(report.testsPassed));
         core.setOutput('tests-failed', String(report.testsFailed));
@@ -31859,6 +31868,102 @@ function cleanupTests(filePaths) {
     for (const filePath of filePaths) {
         if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
+        }
+    }
+}
+
+
+/***/ }),
+
+/***/ 8441:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.uploadTraces = uploadTraces;
+const core = __importStar(__nccwpck_require__(7484));
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
+function findZipFiles(dir) {
+    if (!fs.existsSync(dir))
+        return [];
+    const results = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory())
+            results.push(...findZipFiles(full));
+        else if (entry.name.endsWith('.zip'))
+            results.push(full);
+    }
+    return results;
+}
+async function uploadTraces(testResultsDir, apiUrl, apiKey, projectId, runId) {
+    const traceFiles = findZipFiles(testResultsDir);
+    if (traceFiles.length === 0) {
+        core.info('📦 No trace files found to upload.');
+        return;
+    }
+    core.info(`📦 Uploading ${traceFiles.length} trace file(s) to GreenCI dashboard...`);
+    for (const filePath of traceFiles) {
+        const testFilename = path.relative(testResultsDir, filePath);
+        try {
+            const fileBase64 = fs.readFileSync(filePath).toString('base64');
+            const res = await fetch(`${apiUrl}/v1/traces`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey,
+                },
+                body: JSON.stringify({
+                    project_id: projectId,
+                    run_id: runId,
+                    test_filename: testFilename,
+                    file_base64: fileBase64,
+                }),
+            });
+            if (!res.ok) {
+                core.warning(`Trace upload failed for ${testFilename}: ${res.status} ${res.statusText}`);
+            }
+            else {
+                core.info(`  ✅ Uploaded ${testFilename}`);
+            }
+        }
+        catch (err) {
+            core.warning(`Trace upload error for ${testFilename}: ${err instanceof Error ? err.message : err}`);
         }
     }
 }

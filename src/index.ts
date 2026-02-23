@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import * as path from 'path';
 import { getConfig } from './config';
 import { getPRContext, getChangedFiles, filterTestableFiles } from './diff-parser';
 import { buildChangeContext } from './context-builder';
@@ -7,6 +8,7 @@ import { generateAndRunTests } from './test-generator';
 import { commitTests } from './git-ops';
 import { postReport } from './pr-reporter';
 import { runMigration, buildMigrationReportBody } from './migrator';
+import { uploadTraces } from './trace-uploader';
 
 async function run(): Promise<void> {
   try {
@@ -102,7 +104,15 @@ async function run(): Promise<void> {
       core.setOutput('report-url', reportUrl);
     }
 
-    // 7. Set outputs
+    // 7. Upload traces to dashboard
+    const projectId = core.getInput('project-id');
+    if (config.apiKey && projectId) {
+      const runIdStr = process.env.GITHUB_RUN_ID || 'unknown';
+      const testResultsDir = path.join(workDir, 'test-results');
+      await uploadTraces(testResultsDir, config.greenCIApiUrl, config.apiKey, projectId, runIdStr);
+    }
+
+    // 8. Set outputs
     core.setOutput('tests-generated', String(report.testsGenerated));
     core.setOutput('tests-passed', String(report.testsPassed));
     core.setOutput('tests-failed', String(report.testsFailed));

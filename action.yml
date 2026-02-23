@@ -49,6 +49,10 @@ inputs:
     description: 'GreenCI API endpoint'
     required: false
     default: 'https://api.greenci.ai'
+  project-id:
+    description: 'GreenCI project ID for dashboard trace uploads'
+    required: false
+    default: ''
 
 outputs:
   tests-generated:
