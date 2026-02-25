@@ -68,7 +68,7 @@ export async function getChangedFiles(
 }
 
 export function filterTestableFiles(files: ChangedFile[]): ChangedFile[] {
-  const testableExtensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte'];
+  const testableExtensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.html', '.htm'];
   const ignorePaths = [
     'node_modules/',
     'dist/',

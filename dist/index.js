@@ -30448,7 +30448,7 @@ async function getChangedFiles(token, prContext) {
     return files;
 }
 function filterTestableFiles(files) {
-    const testableExtensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte'];
+    const testableExtensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.html', '.htm'];
     const ignorePaths = [
         'node_modules/',
         'dist/',
