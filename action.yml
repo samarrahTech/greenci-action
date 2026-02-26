@@ -53,6 +53,10 @@ inputs:
     description: 'GreenCI project ID for dashboard trace uploads'
     required: false
     default: ''
+  github-token:
+    description: 'GitHub token for PR comments and auto-commit (defaults to GITHUB_TOKEN)'
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   tests-generated:
