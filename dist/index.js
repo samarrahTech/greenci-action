@@ -30662,8 +30662,10 @@ async function commitTests(token, prContext, testFiles, workDir) {
     // Create blobs for each test file
     const treeItems = [];
     for (const filePath of testFiles) {
-        if (!fs.existsSync(filePath))
+        if (!fs.existsSync(filePath)) {
+            core.warning(`Test file not found, skipping: ${filePath}`);
             continue;
+        }
         const content = fs.readFileSync(filePath, 'utf-8');
         const relativePath = path.relative(workDir, filePath);
         const { data: blob } = await octokit.rest.git.createBlob({
@@ -30829,9 +30831,11 @@ async function run() {
         // 5. Commit passing tests
         if (config.autoCommit && token && report.testsPassed > 0) {
             core.info('📝 Committing passing tests...');
+            const testDir = config.testDir || 'e2e';
             const passingFiles = report.tests
                 .filter((t) => t.passed)
-                .map((t) => `${workDir}/${t.filename}`);
+                .map((t) => path.join(workDir, testDir, t.filename));
+            core.info(`Attempting to commit ${passingFiles.length} file(s): ${passingFiles.join(', ')}`);
             const committed = await (0, git_ops_1.commitTests)(token, prContext, passingFiles, workDir);
             report.committedFiles = committed;
         }
@@ -31025,6 +31029,7 @@ class GreenCIClient {
                     error: request.error,
                     attempt: request.attempt,
                     context: {
+                        changedFiles: request.context.modifiedFiles?.map(f => f.filename) ?? [],
                         routes: request.context.routes,
                         components: request.context.components,
                         apiEndpoints: request.context.apiEndpoints,
