@@ -90,9 +90,10 @@ async function run(): Promise<void> {
     // 5. Commit passing tests
     if (config.autoCommit && token && report.testsPassed > 0) {
       core.info('📝 Committing passing tests...');
+      const testDir = config.testDir || 'e2e';
       const passingFiles = report.tests
         .filter((t) => t.passed)
-        .map((t) => `${workDir}/${t.filename}`);
+        .map((t) => path.join(workDir, testDir, t.filename));
       const committed = await commitTests(token, prContext, passingFiles, workDir);
       report.committedFiles = committed;
     }
