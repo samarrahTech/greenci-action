@@ -125,6 +125,7 @@ class GreenCIClient implements ILLMClient {
           error: request.error,
           attempt: request.attempt,
           context: {
+            changedFiles: request.context.modifiedFiles?.map(f => f.filename) ?? [],
             routes: request.context.routes,
             components: request.context.components,
             apiEndpoints: request.context.apiEndpoints,
