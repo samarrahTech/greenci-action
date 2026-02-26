@@ -36,7 +36,7 @@ const mockConfig: ActionConfig = {
 };
 
 const testFile: GeneratedTest = {
-  filename: 'e2e/login.spec.ts',
+  filename: 'login.spec.ts',
   code: 'test("login", () => {});',
   description: 'Login test',
   confidence: 0.9,
@@ -49,20 +49,20 @@ describe('writeTests', () => {
   });
 
   it('should write test files and return paths', async () => {
-    const result = await writeTests([testFile], '/work');
+    const result = await writeTests([testFile], '/work', 'e2e');
     expect(result).toEqual(['/work/e2e/login.spec.ts']);
     expect(mockWriteFileSync).toHaveBeenCalledWith('/work/e2e/login.spec.ts', testFile.code, 'utf-8');
   });
 
   it('should create directories if missing', async () => {
     mockExistsSync.mockReturnValue(false);
-    await writeTests([testFile], '/work');
+    await writeTests([testFile], '/work', 'e2e');
     expect(mockMkdirSync).toHaveBeenCalledWith(expect.any(String), { recursive: true });
   });
 
   it('should handle multiple files', async () => {
     const tests = [testFile, { ...testFile, filename: 'e2e/other.spec.ts' }];
-    const result = await writeTests(tests, '/work');
+    const result = await writeTests(tests, '/work', 'e2e');
     expect(result).toHaveLength(2);
   });
 });
@@ -76,7 +76,7 @@ describe('runTests', () => {
     (exec.exec as jest.Mock).mockResolvedValue(0);
     const results = await runTests([testFile], mockConfig, '/work');
     expect(results[0].passed).toBe(true);
-    expect(results[0].filename).toBe('e2e/login.spec.ts');
+    expect(results[0].filename).toBe('login.spec.ts');
   });
 
   it('should return failed result when exit code is non-zero', async () => {

@@ -30,7 +30,7 @@ export async function generateAndRunTests(
   }
 
   // 2. Write tests to disk
-  await writeTests(generatedTests, workDir);
+  await writeTests(generatedTests, workDir, config.testDir);
 
   // 2b. If generate-only mode, skip running tests entirely
   if (config.mode === 'generate-only') {

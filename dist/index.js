@@ -31692,7 +31692,7 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
         };
     }
     // 2. Write tests to disk
-    await (0, test_runner_1.writeTests)(generatedTests, workDir);
+    await (0, test_runner_1.writeTests)(generatedTests, workDir, config.testDir);
     // 2b. If generate-only mode, skip running tests entirely
     if (config.mode === 'generate-only') {
         core.info('📝 Generate-only mode: skipping test execution');
@@ -31795,10 +31795,10 @@ const core = __importStar(__nccwpck_require__(7484));
 const exec = __importStar(__nccwpck_require__(5236));
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
-async function writeTests(tests, workDir) {
+async function writeTests(tests, workDir, testDir = 'e2e') {
     const writtenFiles = [];
     for (const test of tests) {
-        const filePath = path.join(workDir, test.filename);
+        const filePath = path.join(workDir, testDir, test.filename);
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
@@ -31812,7 +31812,7 @@ async function writeTests(tests, workDir) {
 async function runTests(tests, config, workDir) {
     const results = [];
     for (const test of tests) {
-        const filePath = path.join(workDir, test.filename);
+        const filePath = path.join(workDir, config.testDir, test.filename);
         const startTime = Date.now();
         let stdout = '';
         let stderr = '';

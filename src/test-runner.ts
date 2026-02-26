@@ -4,11 +4,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ActionConfig, GeneratedTest, TestResult } from './types';
 
-export async function writeTests(tests: GeneratedTest[], workDir: string): Promise<string[]> {
+export async function writeTests(tests: GeneratedTest[], workDir: string, testDir: string = 'e2e'): Promise<string[]> {
   const writtenFiles: string[] = [];
 
   for (const test of tests) {
-    const filePath = path.join(workDir, test.filename);
+    const filePath = path.join(workDir, testDir, test.filename);
     const dir = path.dirname(filePath);
 
     if (!fs.existsSync(dir)) {
@@ -31,7 +31,7 @@ export async function runTests(
   const results: TestResult[] = [];
 
   for (const test of tests) {
-    const filePath = path.join(workDir, test.filename);
+    const filePath = path.join(workDir, config.testDir, test.filename);
     const startTime = Date.now();
 
     let stdout = '';
