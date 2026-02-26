@@ -15,9 +15,10 @@ export async function writeTests(tests: GeneratedTest[], workDir: string, testDi
       fs.mkdirSync(dir, { recursive: true });
     }
 
+    const isUpdate = fs.existsSync(filePath);
     fs.writeFileSync(filePath, test.code, 'utf-8');
     writtenFiles.push(filePath);
-    core.info(`Wrote test: ${test.filename}`);
+    core.info(`${isUpdate ? '♻️ Updated' : '✨ Created'} test: ${test.filename}`);
   }
 
   return writtenFiles;

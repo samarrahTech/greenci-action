@@ -42,6 +42,7 @@ export interface ChangeContext {
   apiEndpoints: APIEndpointChange[];
   modifiedFiles: ChangedFile[];
   summary: string;
+  existingTests?: string[];
 }
 
 export interface RouteChange {

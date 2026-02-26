@@ -2,6 +2,7 @@ import * as core from '@actions/core';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, TestResult, RunReport } from './types';
 import { runTests, writeTests } from './test-runner';
 import { healFailedTests } from './self-healer';
+import { readExistingTests, formatExistingTestsForAPI } from './existing-tests';
 
 export async function generateAndRunTests(
   context: ChangeContext,
@@ -10,6 +11,13 @@ export async function generateAndRunTests(
   workDir: string
 ): Promise<RunReport> {
   const startTime = Date.now();
+
+  // 0. Read existing tests from testDir
+  const existingTests = readExistingTests(workDir, config.testDir);
+  if (existingTests.length > 0) {
+    core.info(`📚 Found ${existingTests.length} existing test file(s) in ${config.testDir}`);
+    context = { ...context, existingTests: formatExistingTestsForAPI(existingTests) };
+  }
 
   // 1. Generate tests
   core.info('🧪 Generating tests...');

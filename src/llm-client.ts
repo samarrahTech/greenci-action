@@ -1,5 +1,6 @@
 import * as core from '@actions/core';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SelfHealRequest } from './types';
+import { readExistingTests, formatExistingTestsForAPI } from './existing-tests';
 
 const MIGRATION_PROMPT = `You are an expert at migrating Cypress E2E tests to Playwright.
 You will receive:
@@ -86,6 +87,7 @@ class GreenCIClient implements ILLMClient {
             routes: context.routes.map((r) => r.path),
             components: context.components.map((c) => c.name),
             apis: context.apiEndpoints.map((e) => `${e.method} ${e.path}`),
+            existingTests: context.existingTests,
           },
           config: {
             baseUrl: config.baseUrl,

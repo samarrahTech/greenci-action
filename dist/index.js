@@ -30498,6 +30498,105 @@ function parseFileDiff(patch) {
 
 /***/ }),
 
+/***/ 2738:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.readExistingTests = readExistingTests;
+exports.formatExistingTestsForAPI = formatExistingTestsForAPI;
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
+const MAX_FILE_SIZE = 50 * 1024; // 50KB
+/**
+ * Reads existing test files from the test directory.
+ * Skips files larger than 50KB to avoid token bloat.
+ */
+function readExistingTests(workDir, testDir) {
+    const fullPath = path.join(workDir, testDir);
+    if (!fs.existsSync(fullPath)) {
+        return [];
+    }
+    const results = [];
+    scanDirectory(fullPath, fullPath, results);
+    return results;
+}
+function scanDirectory(dir, rootDir, results) {
+    let entries;
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+    }
+    catch {
+        return;
+    }
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            scanDirectory(fullPath, rootDir, results);
+            continue;
+        }
+        if (!entry.isFile())
+            continue;
+        if (!/\.(spec|test)\.(ts|tsx|js|jsx)$/.test(entry.name))
+            continue;
+        try {
+            const stats = fs.statSync(fullPath);
+            if (stats.size > MAX_FILE_SIZE)
+                continue;
+            const code = fs.readFileSync(fullPath, 'utf-8');
+            const relativePath = path.relative(rootDir, fullPath);
+            results.push({ filename: relativePath, code });
+        }
+        catch {
+            // Skip unreadable files
+        }
+    }
+}
+/**
+ * Formats existing tests for the API's existingTests field.
+ * Each string = "// filename: login.spec.ts\n{code}"
+ */
+function formatExistingTestsForAPI(tests) {
+    return tests.map((t) => `// filename: ${t.filename}\n${t.code}`);
+}
+
+
+/***/ }),
+
 /***/ 7482:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -30891,6 +30990,7 @@ class GreenCIClient {
                         routes: context.routes.map((r) => r.path),
                         components: context.components.map((c) => c.name),
                         apis: context.apiEndpoints.map((e) => `${e.method} ${e.path}`),
+                        existingTests: context.existingTests,
                     },
                     config: {
                         baseUrl: config.baseUrl,
@@ -31673,8 +31773,15 @@ exports.generateAndRunTests = generateAndRunTests;
 const core = __importStar(__nccwpck_require__(7484));
 const test_runner_1 = __nccwpck_require__(7194);
 const self_healer_1 = __nccwpck_require__(6523);
+const existing_tests_1 = __nccwpck_require__(2738);
 async function generateAndRunTests(context, config, llmClient, workDir) {
     const startTime = Date.now();
+    // 0. Read existing tests from testDir
+    const existingTests = (0, existing_tests_1.readExistingTests)(workDir, config.testDir);
+    if (existingTests.length > 0) {
+        core.info(`📚 Found ${existingTests.length} existing test file(s) in ${config.testDir}`);
+        context = { ...context, existingTests: (0, existing_tests_1.formatExistingTestsForAPI)(existingTests) };
+    }
     // 1. Generate tests
     core.info('🧪 Generating tests...');
     const generatedTests = await llmClient.generateTests(context, config);
@@ -31803,9 +31910,10 @@ async function writeTests(tests, workDir, testDir = 'e2e') {
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
+        const isUpdate = fs.existsSync(filePath);
         fs.writeFileSync(filePath, test.code, 'utf-8');
         writtenFiles.push(filePath);
-        core.info(`Wrote test: ${test.filename}`);
+        core.info(`${isUpdate ? '♻️ Updated' : '✨ Created'} test: ${test.filename}`);
     }
     return writtenFiles;
 }
