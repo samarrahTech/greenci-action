@@ -31817,9 +31817,10 @@ async function runTests(tests, config, workDir) {
         let stdout = '';
         let stderr = '';
         try {
-            // Use relative path from workDir so Playwright's testDir matching works
-            const relativePath = path.relative(workDir, filePath);
-            const exitCode = await exec.exec('npx', ['playwright', 'test', relativePath, '--reporter=line'], {
+            // Override testDir to match where we write tests, use filename as filter
+            const testDir = path.dirname(filePath);
+            const basename = path.basename(filePath);
+            const exitCode = await exec.exec('npx', ['playwright', 'test', '--test-dir', testDir, basename, '--reporter=line'], {
                 cwd: workDir,
                 env: {
                     ...process.env,
