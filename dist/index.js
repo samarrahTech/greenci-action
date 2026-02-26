@@ -31817,7 +31817,7 @@ async function runTests(tests, config, workDir) {
         let stdout = '';
         let stderr = '';
         try {
-            const exitCode = await exec.exec('npx', ['playwright', 'test', filePath, '--reporter=json'], {
+            const exitCode = await exec.exec('npx', ['playwright', 'test', filePath, '--reporter=line'], {
                 cwd: workDir,
                 env: {
                     ...process.env,
@@ -31849,30 +31849,11 @@ async function runTests(tests, config, workDir) {
             }
             else {
                 core.warning(`❌ ${test.filename} failed (${duration}ms)`);
-                // Parse JSON reporter output for actual error messages
-                try {
-                    const report = JSON.parse(stdout);
-                    const errors = [];
-                    for (const suite of report.suites || []) {
-                        for (const spec of suite.specs || []) {
-                            for (const t of spec.tests || []) {
-                                for (const r of t.results || []) {
-                                    if (r.errors?.length) {
-                                        errors.push(`${spec.title}: ${r.errors[0].message?.substring(0, 300) || 'unknown error'}`);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (errors.length) {
-                        core.info(`   Errors:\n${errors.map(e => `     - ${e}`).join('\n')}`);
-                    }
-                }
-                catch {
-                    // Not JSON, log raw stderr
-                    const errorSnippet = (stderr || stdout).substring(0, 500);
-                    if (errorSnippet)
-                        core.info(`   Error: ${errorSnippet}`);
+                // Log stderr first (usually has the real error), then stdout
+                const errorOutput = [stderr, stdout].filter(Boolean).join('\n');
+                const errorSnippet = errorOutput.substring(0, 800);
+                if (errorSnippet) {
+                    core.info(`   Error output:\n${errorSnippet}`);
                 }
             }
         }
