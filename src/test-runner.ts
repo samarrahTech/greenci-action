@@ -38,10 +38,9 @@ export async function runTests(
     let stderr = '';
 
     try {
-      // Override testDir to match where we write tests, use filename as filter
-      const testDir = path.dirname(filePath);
+      // Pass just the filename as a regex filter — Playwright matches against absolute paths
       const basename = path.basename(filePath);
-      const exitCode = await exec.exec('npx', ['playwright', 'test', '--test-dir', testDir, basename, '--reporter=line'], {
+      const exitCode = await exec.exec('npx', ['playwright', 'test', basename, '--reporter=line'], {
         cwd: workDir,
         env: {
           ...process.env,
