@@ -72,6 +72,11 @@ export async function runTests(
         core.info(`✅ ${test.filename} passed (${duration}ms)`);
       } else {
         core.warning(`❌ ${test.filename} failed (${duration}ms)`);
+        // Log first 500 chars of error for debugging
+        const errorSnippet = (stderr || stdout).substring(0, 500);
+        if (errorSnippet) {
+          core.info(`   Error: ${errorSnippet}`);
+        }
       }
     } catch (error) {
       const duration = Date.now() - startTime;
