@@ -31849,10 +31849,30 @@ async function runTests(tests, config, workDir) {
             }
             else {
                 core.warning(`❌ ${test.filename} failed (${duration}ms)`);
-                // Log first 500 chars of error for debugging
-                const errorSnippet = (stderr || stdout).substring(0, 500);
-                if (errorSnippet) {
-                    core.info(`   Error: ${errorSnippet}`);
+                // Parse JSON reporter output for actual error messages
+                try {
+                    const report = JSON.parse(stdout);
+                    const errors = [];
+                    for (const suite of report.suites || []) {
+                        for (const spec of suite.specs || []) {
+                            for (const t of spec.tests || []) {
+                                for (const r of t.results || []) {
+                                    if (r.errors?.length) {
+                                        errors.push(`${spec.title}: ${r.errors[0].message?.substring(0, 300) || 'unknown error'}`);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (errors.length) {
+                        core.info(`   Errors:\n${errors.map(e => `     - ${e}`).join('\n')}`);
+                    }
+                }
+                catch {
+                    // Not JSON, log raw stderr
+                    const errorSnippet = (stderr || stdout).substring(0, 500);
+                    if (errorSnippet)
+                        core.info(`   Error: ${errorSnippet}`);
                 }
             }
         }
