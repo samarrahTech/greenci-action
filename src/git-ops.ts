@@ -35,7 +35,10 @@ export async function commitTests(
   const treeItems: { path: string; mode: '100644'; type: 'blob'; sha: string }[] = [];
 
   for (const filePath of testFiles) {
-    if (!fs.existsSync(filePath)) continue;
+    if (!fs.existsSync(filePath)) {
+      core.warning(`Test file not found, skipping: ${filePath}`);
+      continue;
+    }
 
     const content = fs.readFileSync(filePath, 'utf-8');
     const relativePath = path.relative(workDir, filePath);

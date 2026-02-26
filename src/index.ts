@@ -94,6 +94,7 @@ async function run(): Promise<void> {
       const passingFiles = report.tests
         .filter((t) => t.passed)
         .map((t) => path.join(workDir, testDir, t.filename));
+      core.info(`Attempting to commit ${passingFiles.length} file(s): ${passingFiles.join(', ')}`);
       const committed = await commitTests(token, prContext, passingFiles, workDir);
       report.committedFiles = committed;
     }
