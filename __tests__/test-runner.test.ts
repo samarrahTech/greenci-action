@@ -97,7 +97,7 @@ describe('runTests', () => {
     await runTests([testFile], mockConfig, '/work');
     expect(exec.exec).toHaveBeenCalledWith(
       'npx',
-      ['playwright', 'test', '/work/e2e/login.spec.ts', '--reporter=line'],
+      ['playwright', 'test', 'e2e/login.spec.ts', '--reporter=line'],
       expect.objectContaining({ cwd: '/work', ignoreReturnCode: true })
     );
   });

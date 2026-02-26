@@ -31817,7 +31817,9 @@ async function runTests(tests, config, workDir) {
         let stdout = '';
         let stderr = '';
         try {
-            const exitCode = await exec.exec('npx', ['playwright', 'test', filePath, '--reporter=line'], {
+            // Use relative path from workDir so Playwright's testDir matching works
+            const relativePath = path.relative(workDir, filePath);
+            const exitCode = await exec.exec('npx', ['playwright', 'test', relativePath, '--reporter=line'], {
                 cwd: workDir,
                 env: {
                     ...process.env,
