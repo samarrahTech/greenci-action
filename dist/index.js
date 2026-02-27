@@ -30776,9 +30776,16 @@ async function run() {
             const llmClient = (0, llm_client_1.createLLMClient)(config);
             const workDir = process.env.GITHUB_WORKSPACE || process.cwd();
             const report = await (0, migrator_1.runMigration)(config, llmClient, workDir);
+            // Commit and report — only if running in a PR context
+            let prContext = null;
+            try {
+                prContext = (0, diff_parser_1.getPRContext)();
+            }
+            catch {
+                core.info('ℹ️ No PR context — skipping commit and PR comment (migration results are in the output)');
+            }
             // Commit converted tests if auto-commit is on
-            if (config.autoCommit && token && report.converted > 0) {
-                const prContext = (0, diff_parser_1.getPRContext)();
+            if (config.autoCommit && token && report.converted > 0 && prContext) {
                 core.info('📝 Committing converted tests...');
                 const convertedPaths = report.files
                     .filter((f) => f.status !== 'failed')
@@ -30786,8 +30793,7 @@ async function run() {
                 await (0, git_ops_1.commitTests)(token, prContext, convertedPaths, workDir);
             }
             // Post migration report as PR comment
-            if (token) {
-                const prContext = (0, diff_parser_1.getPRContext)();
+            if (token && prContext) {
                 const reportBody = (0, migrator_1.buildMigrationReportBody)(report);
                 const github = await Promise.resolve().then(() => __importStar(__nccwpck_require__(3228)));
                 const octokit = github.getOctokit(token);

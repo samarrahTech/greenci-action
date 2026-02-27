@@ -26,9 +26,16 @@ async function run(): Promise<void> {
       const workDir = process.env.GITHUB_WORKSPACE || process.cwd();
       const report = await runMigration(config, llmClient, workDir);
 
+      // Commit and report — only if running in a PR context
+      let prContext: ReturnType<typeof getPRContext> | null = null;
+      try {
+        prContext = getPRContext();
+      } catch {
+        core.info('ℹ️ No PR context — skipping commit and PR comment (migration results are in the output)');
+      }
+
       // Commit converted tests if auto-commit is on
-      if (config.autoCommit && token && report.converted > 0) {
-        const prContext = getPRContext();
+      if (config.autoCommit && token && report.converted > 0 && prContext) {
         core.info('📝 Committing converted tests...');
         const convertedPaths = report.files
           .filter((f) => f.status !== 'failed')
@@ -37,8 +44,7 @@ async function run(): Promise<void> {
       }
 
       // Post migration report as PR comment
-      if (token) {
-        const prContext = getPRContext();
+      if (token && prContext) {
         const reportBody = buildMigrationReportBody(report);
         const github = await import('@actions/github');
         const octokit = github.getOctokit(token);
