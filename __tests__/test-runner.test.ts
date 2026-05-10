@@ -1,4 +1,3 @@
-import * as core from '@actions/core';
 import * as exec from '@actions/exec';
 import { writeTests, runTests, cleanupTests } from '../src/test-runner';
 import { ActionConfig, GeneratedTest } from '../src/types';
@@ -14,10 +13,10 @@ jest.mock('fs', () => {
   const actual = jest.requireActual('fs');
   return {
     ...actual,
-    existsSync: (...args: any[]) => mockExistsSync(...args),
-    mkdirSync: (...args: any[]) => mockMkdirSync(...args),
-    writeFileSync: (...args: any[]) => mockWriteFileSync(...args),
-    unlinkSync: (...args: any[]) => mockUnlinkSync(...args),
+    existsSync: (...args: unknown[]) => mockExistsSync(...args),
+    mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+    writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+    unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
   };
 });
 

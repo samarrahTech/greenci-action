@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import * as github from '@actions/github';
 
 jest.mock('@actions/core');
 jest.mock('@actions/github');
@@ -121,9 +122,8 @@ describe('index (run)', () => {
     });
     (buildMigrationReportBody as jest.Mock).mockReturnValue('report body');
 
-    // Mock dynamic import of @actions/github
-    const mockGithub = require('@actions/github');
-    mockGithub.getOctokit = jest.fn().mockReturnValue({
+    // Mock @actions/github.getOctokit for migration mode
+    (github.getOctokit as jest.Mock) = jest.fn().mockReturnValue({
       rest: { issues: { createComment: jest.fn().mockResolvedValue({}) } },
     });
 

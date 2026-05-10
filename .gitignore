@@ -3,3 +3,6 @@ coverage/
 *.js.map
 .env
 .DS_Store
+
+# dist/ declaration source maps embed absolute paths and are not deterministic across environments
+dist/**/*.d.ts.map

@@ -162,7 +162,7 @@ afterEach(() => { reset(); });`;
     });
 
     test('lower confidence when patterns remain unconverted', () => {
-      const { confidence, notes } = convertCypressToPlaywright("cy.visit('/'); cy.customCommand();");
+      const { notes } = convertCypressToPlaywright("cy.visit('/'); cy.customCommand();");
       // customCommand won't match specific rules but cy.visit will
       expect(notes.length).toBeGreaterThan(0);
     });

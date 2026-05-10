@@ -115,7 +115,6 @@ const CONVERSION_RULES: ConversionRule[] = [
 export function convertCypressToPlaywright(source: string): { code: string; notes: string[]; confidence: number } {
   const notes: string[] = [];
   let code = source;
-  let rulesApplied = 0;
   let totalCypressPatterns = 0;
 
   // Count total Cypress patterns for confidence scoring
@@ -127,8 +126,7 @@ export function convertCypressToPlaywright(source: string): { code: string; note
   for (const rule of CONVERSION_RULES) {
     const matches = code.match(rule.pattern);
     if (matches) {
-      rulesApplied += matches.length;
-      code = code.replace(rule.pattern, rule.replace as any);
+      code = code.replace(rule.pattern, rule.replace as Parameters<typeof code.replace>[1]);
       if (rule.note) {
         notes.push(rule.note);
       }
