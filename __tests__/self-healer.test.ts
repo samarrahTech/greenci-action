@@ -77,7 +77,7 @@ describe('healFailedTests', () => {
     (mockLLMClient.healTest as jest.Mock).mockResolvedValue(healedTest);
     (testRunner.runTests as jest.Mock).mockResolvedValue([{ ...failedResult, passed: false }]);
 
-    const { healed, results } = await healFailedTests(
+    const { healed } = await healFailedTests(
       [{ test: failedTest, result: failedResult }],
       mockContext,
       mockConfig,

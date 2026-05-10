@@ -43,7 +43,7 @@ describe('createLLMClient', () => {
   });
 
   it('should throw for unknown provider', () => {
-    expect(() => createLLMClient({ ...mockConfig, llmProvider: 'unknown' as any })).toThrow('Unknown LLM provider');
+    expect(() => createLLMClient({ ...mockConfig, llmProvider: 'unknown' as unknown as ActionConfig['llmProvider'] })).toThrow('Unknown LLM provider');
   });
 });
 

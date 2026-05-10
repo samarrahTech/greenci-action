@@ -1,4 +1,3 @@
-import * as core from '@actions/core';
 import { runMigration } from '../src/migrator';
 import { ActionConfig, ILLMClient } from '../src/types';
 import * as cypressParser from '../src/cypress-parser';
@@ -14,8 +13,8 @@ jest.mock('fs', () => {
   const actual = jest.requireActual('fs');
   return {
     ...actual,
-    mkdirSync: (...args: any[]) => mockMkdirSync(...args),
-    writeFileSync: (...args: any[]) => mockWriteFileSync(...args),
+    mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+    writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
   };
 });
 

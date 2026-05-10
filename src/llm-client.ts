@@ -1,6 +1,5 @@
 import * as core from '@actions/core';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SelfHealRequest } from './types';
-import { readExistingTests, formatExistingTestsForAPI } from './existing-tests';
 
 const MIGRATION_PROMPT = `You are an expert at migrating Cypress E2E tests to Playwright.
 You will receive:

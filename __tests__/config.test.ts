@@ -8,7 +8,7 @@ const mockGetInput = core.getInput as jest.MockedFunction<typeof core.getInput>;
 describe('getConfig', () => {
   beforeEach(() => {
     jest.resetAllMocks();
-    mockGetInput.mockImplementation((name: string, opts?: core.InputOptions) => {
+    mockGetInput.mockImplementation((name: string, _opts?: core.InputOptions) => {
       const defaults: Record<string, string> = {
         'api-key': 'mock-api-key-12345',
         'llm-provider': 'greenci',
