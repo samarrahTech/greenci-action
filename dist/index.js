@@ -31468,7 +31468,6 @@ const CONVERSION_RULES = [
 function convertCypressToPlaywright(source) {
     const notes = [];
     let code = source;
-    let rulesApplied = 0;
     let totalCypressPatterns = 0;
     // Count total Cypress patterns for confidence scoring
     const cypressPatternCount = (code.match(/cy\.\w+/g) || []).length;
@@ -31478,7 +31477,6 @@ function convertCypressToPlaywright(source) {
     for (const rule of CONVERSION_RULES) {
         const matches = code.match(rule.pattern);
         if (matches) {
-            rulesApplied += matches.length;
             code = code.replace(rule.pattern, rule.replace);
             if (rule.note) {
                 notes.push(rule.note);
