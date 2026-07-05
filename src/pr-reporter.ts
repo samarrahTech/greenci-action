@@ -41,11 +41,26 @@ export async function postReport(
 }
 
 function buildReportBody(report: RunReport): string {
-  const statusEmoji = report.testsFailed === 0 ? '✅' : '⚠️';
+  const hasSuspectedBugs = (report.suspectedBugs?.length ?? 0) > 0;
+  const statusEmoji = hasSuspectedBugs ? '🚨' : report.testsFailed === 0 ? '✅' : '⚠️';
   const duration = (report.duration / 1000).toFixed(1);
 
   let body = `${COMMENT_MARKER}\n`;
   body += `## ${statusEmoji} GreenCI E2E Test Report\n\n`;
+
+  // Possible real regressions come first — they are the most important signal
+  if (hasSuspectedBugs && report.suspectedBugs) {
+    body += `### 🚨 Possible App Regressions Detected\n\n`;
+    body += `The self-healer declined to "fix" ${report.suspectedBugs.length} failing test(s) because the failure looks like a real application bug, not a test problem:\n\n`;
+    for (const bug of report.suspectedBugs) {
+      body += `- \`${bug.filename}\` — ${bug.reasoning}\n`;
+      if (bug.error) {
+        const errorPreview = bug.error.split('\n').slice(0, 5).join('\n');
+        body += `  <details><summary>Error output</summary>\n\n  \`\`\`\n  ${errorPreview}\n  \`\`\`\n  </details>\n`;
+      }
+    }
+    body += `\nPlease review these before merging.\n\n`;
+  }
 
   // Summary table
   body += `| Metric | Value |\n`;
@@ -71,6 +86,16 @@ function buildReportBody(report: RunReport): string {
       }
     }
     body += '\n';
+  }
+
+  // Healing evidence — what was changed and why, so heals are reviewable
+  if (report.healedTests && report.healedTests.length > 0) {
+    body += `### 🔧 Self-Healed Tests\n\n`;
+    for (const healedTest of report.healedTests) {
+      const reason = healedTest.verdict?.reasoning || healedTest.description;
+      body += `- \`${healedTest.filename}\` — ${reason}\n`;
+    }
+    body += `\nHealed tests are committed to this PR — review the diff like any other change.\n\n`;
   }
 
   // Committed files

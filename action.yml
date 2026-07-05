@@ -7,8 +7,8 @@ branding:
 
 inputs:
   api-key:
-    description: 'GreenCI API key'
-    required: true
+    description: 'GreenCI API key (required for the hosted greenci provider; optional for BYO-LLM providers)'
+    required: false
   mode:
     description: 'Operation mode (generate or migrate)'
     required: false
@@ -18,7 +18,7 @@ inputs:
     required: false
     default: 'cypress/e2e'
   llm-provider:
-    description: "LLM provider. Only 'greenci' (hosted) is supported today; bedrock/azure-openai/openai/ollama are on the roadmap and fail fast if selected."
+    description: "LLM provider: 'greenci' (hosted), or BYO-LLM 'anthropic' / 'openai' (your key via ANTHROPIC_API_KEY / OPENAI_API_KEY env — code never touches the GreenCI API). bedrock/azure-openai/ollama are on the roadmap and fail fast if selected."
     required: false
     default: 'greenci'
   llm-model:

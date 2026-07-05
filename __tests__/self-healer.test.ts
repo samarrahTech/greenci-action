@@ -124,6 +124,56 @@ describe('healFailedTests', () => {
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Self-healing attempt'));
   });
 
+  it('should not heal and should flag a suspected app bug instead', async () => {
+    const suspectedTest: GeneratedTest = {
+      ...failedTest,
+      code: failedTest.code,
+      verdict: { classification: 'app-bug-suspected', confidence: 0.9, reasoning: 'page returns 500' },
+    };
+    (mockLLMClient.healTest as jest.Mock).mockResolvedValue(suspectedTest);
+
+    const { healed, results, suspectedBugs } = await healFailedTests(
+      [{ test: failedTest, result: failedResult }],
+      mockContext,
+      mockConfig,
+      mockLLMClient,
+      '/work'
+    );
+
+    expect(healed).toHaveLength(0);
+    expect(suspectedBugs).toEqual([
+      { filename: 'e2e/failing.spec.ts', reasoning: 'page returns 500', error: 'Element not found' },
+    ]);
+    // The failing result is kept, no further heal attempts, nothing written/run
+    expect(results[0].passed).toBe(false);
+    expect(mockLLMClient.healTest).toHaveBeenCalledTimes(1);
+    expect(testRunner.writeTests).not.toHaveBeenCalled();
+    expect(testRunner.runTests).not.toHaveBeenCalled();
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('possible app regression'));
+  });
+
+  it('should heal normally when verdict is test-issue', async () => {
+    const healedTest: GeneratedTest = {
+      ...failedTest,
+      code: 'fixed code',
+      verdict: { classification: 'test-issue', confidence: 0.9, reasoning: 'strict mode violation' },
+    };
+    (mockLLMClient.healTest as jest.Mock).mockResolvedValue(healedTest);
+    (testRunner.runTests as jest.Mock).mockResolvedValue([{ ...failedResult, passed: true }]);
+
+    const { healed, suspectedBugs } = await healFailedTests(
+      [{ test: failedTest, result: failedResult }],
+      mockContext,
+      mockConfig,
+      mockLLMClient,
+      '/work'
+    );
+
+    expect(healed).toHaveLength(1);
+    expect(healed[0].verdict?.reasoning).toBe('strict mode violation');
+    expect(suspectedBugs).toHaveLength(0);
+  });
+
   it('should handle multiple failed tests', async () => {
     const test2: GeneratedTest = { ...failedTest, filename: 'e2e/other.spec.ts' };
     const result2: TestResult = { ...failedResult, filename: 'e2e/other.spec.ts' };

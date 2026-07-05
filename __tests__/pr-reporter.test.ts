@@ -86,6 +86,34 @@ describe('postReport', () => {
     expect(body).toContain('<!-- greenci-report -->');
   });
 
+  it('should lead with suspected app regressions and show healing evidence', async () => {
+    mockOctokit.rest.issues.listComments.mockResolvedValue({ data: [] });
+    mockOctokit.rest.issues.createComment.mockResolvedValue({ data: { html_url: 'url' } });
+
+    const verdictReport: RunReport = {
+      ...report,
+      healedTests: [
+        {
+          filename: 'e2e/a.spec.ts',
+          code: 'fixed',
+          description: 'healed',
+          confidence: 0.9,
+          verdict: { classification: 'test-issue', confidence: 0.9, reasoning: 'selector drifted after refactor' },
+        },
+      ],
+      suspectedBugs: [
+        { filename: 'e2e/c.spec.ts', reasoning: 'checkout endpoint returns 500', error: 'HTTP 500' },
+      ],
+    };
+    await postReport('mock-token', prContext, verdictReport);
+    const body = mockOctokit.rest.issues.createComment.mock.calls[0][0].body;
+    expect(body).toContain('## 🚨');
+    expect(body).toContain('Possible App Regressions Detected');
+    expect(body).toContain('checkout endpoint returns 500');
+    expect(body).toContain('Self-Healed Tests');
+    expect(body).toContain('selector drifted after refactor');
+  });
+
   it('should handle report with all tests passing', async () => {
     mockOctokit.rest.issues.listComments.mockResolvedValue({ data: [] });
     mockOctokit.rest.issues.createComment.mockResolvedValue({ data: { html_url: 'url' } });

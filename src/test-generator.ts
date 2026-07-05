@@ -70,12 +70,14 @@ export async function generateAndRunTests(
 
   let healedTests: GeneratedTest[] = [];
   let healedResults: TestResult[] = [];
+  let suspectedBugs: RunReport['suspectedBugs'] = [];
 
   if (failedTests.length > 0 && config.maxRetries > 0) {
     core.info(`🔧 Attempting to heal ${failedTests.length} failed test(s)...`);
     const healing = await healFailedTests(failedTests, context, config, llmClient, workDir);
     healedTests = healing.healed;
     healedResults = healing.results;
+    suspectedBugs = healing.suspectedBugs;
   }
 
   // 5. Compile final results
@@ -97,5 +99,7 @@ export async function generateAndRunTests(
     duration: Date.now() - startTime,
     tests: allResults,
     committedFiles: [], // Filled in by index.ts after commit
+    healedTests,
+    suspectedBugs,
   };
 }

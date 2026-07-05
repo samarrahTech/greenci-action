@@ -51,9 +51,9 @@ jobs:
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `api-key` | GreenCI API key | ✅ | — |
-| `llm-provider` | LLM provider. Only `greenci` (hosted) is supported today; `bedrock`, `azure-openai`, `openai`, and `ollama` are on the roadmap and fail fast if selected | ❌ | `greenci` |
-| `llm-model` | LLM model name | ❌ | `''` |
+| `api-key` | GreenCI API key (required for the hosted `greenci` provider; optional for BYO-LLM) | ❌ | — |
+| `llm-provider` | `greenci` (hosted), `anthropic` or `openai` (BYO-LLM — your key, your bill, code never touches the GreenCI API); `bedrock`, `azure-openai`, `ollama` are on the roadmap and fail fast | ❌ | `greenci` |
+| `llm-model` | LLM model override (BYO defaults: `claude-opus-4-8` / `gpt-4o`) | ❌ | `''` |
 | `aws-region` | AWS region for Bedrock (reserved for future BYO-LLM support) | ❌ | `us-east-1` |
 | `test-dir` | Directory to save generated tests | ❌ | `e2e` |
 | `base-url` | App base URL for E2E tests | ❌ | `http://localhost:3000` |
@@ -73,6 +73,20 @@ jobs:
 | `report-url` | URL to the PR comment with full report |
 
 ## Examples
+
+### Bring Your Own LLM (Anthropic or OpenAI)
+
+With a BYO-LLM provider, the action calls your LLM provider directly from the runner — your diff and tests are never sent to the GreenCI API. You pay your provider directly; no GreenCI API key or quota is needed.
+
+```yaml
+- uses: greenci/greenci-action@v1
+  with:
+    llm-provider: anthropic          # or: openai
+    # llm-model: claude-opus-4-8     # optional override (openai default: gpt-4o)
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # or OPENAI_API_KEY
+```
 
 ### Custom Test Directory and Base URL
 
@@ -180,7 +194,9 @@ GreenCI posts a detailed summary comment on your PR:
 
 ## Data Sent to the GreenCI API
 
-To generate and heal tests, the action sends the following to the GreenCI API (`greenci-api-url`, default `https://api.greenci.ai`):
+**BYO-LLM mode (`llm-provider: anthropic` or `openai`):** nothing is sent to the GreenCI API — the payloads below go directly from your runner to your chosen LLM provider under your own key. (Exception: if you set `project-id` with a GreenCI API key, traces are still uploaded to the GreenCI dashboard.)
+
+**Hosted mode (`llm-provider: greenci`, the default):** to generate and heal tests, the action sends the following to the GreenCI API (`greenci-api-url`, default `https://api.greenci.ai`):
 
 - The PR diff (patch hunks of changed files) and the list of changed file paths
 - Detected routes, component names, and API endpoint signatures

@@ -1,5 +1,7 @@
 import * as core from '@actions/core';
-import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SelfHealRequest } from './types';
+import { ActionConfig, ChangeContext, GeneratedTest, HealVerdict, ILLMClient, SelfHealRequest } from './types';
+import { AnthropicClient } from './providers/anthropic';
+import { OpenAIClient } from './providers/openai';
 
 const MIGRATION_PROMPT = `You are an expert at migrating Cypress E2E tests to Playwright.
 You will receive:
@@ -20,8 +22,11 @@ export function createLLMClient(config: ActionConfig): ILLMClient {
   switch (config.llmProvider) {
     case 'greenci':
       return new GreenCIClient();
-    case 'bedrock':
+    case 'anthropic':
+      return new AnthropicClient();
     case 'openai':
+      return new OpenAIClient();
+    case 'bedrock':
     case 'azure-openai':
     case 'ollama':
       // Do NOT silently fall back to the hosted API: users choosing their own
@@ -29,7 +34,7 @@ export function createLLMClient(config: ActionConfig): ILLMClient {
       // leave their environment without an explicit opt-in.
       throw new Error(
         `LLM provider '${config.llmProvider}' is not supported yet. ` +
-          `Set llm-provider to 'greenci' (hosted) or watch the roadmap for BYO-LLM support.`,
+          `Use 'greenci' (hosted), or BYO-LLM with 'anthropic' or 'openai'.`,
       );
     default:
       throw new Error(`Unknown LLM provider: ${config.llmProvider}`);
@@ -157,8 +162,8 @@ class GreenCIClient implements ILLMClient {
         throw new Error(`GreenCI heal API returned ${response.status}${body ? `: ${body}` : ''}`);
       }
 
-      const data = (await response.json()) as { test: GeneratedTest };
-      return data.test;
+      const data = (await response.json()) as { test: GeneratedTest; verdict?: HealVerdict };
+      return { ...data.test, verdict: data.verdict };
     } catch (error) {
       // Surface the failure to the self-healing loop; retrying the identical
       // failing test would waste retry attempts and hide the API problem.

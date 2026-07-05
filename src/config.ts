@@ -3,7 +3,7 @@ import { ActionConfig, LLMProvider, OperationMode } from './types';
 
 export function getConfig(): ActionConfig {
   const provider = core.getInput('llm-provider') || 'greenci';
-  const validProviders: LLMProvider[] = ['greenci', 'bedrock', 'azure-openai', 'openai', 'ollama'];
+  const validProviders: LLMProvider[] = ['greenci', 'anthropic', 'openai', 'bedrock', 'azure-openai', 'ollama'];
 
   if (!validProviders.includes(provider as LLMProvider)) {
     throw new Error(`Invalid LLM provider: ${provider}. Must be one of: ${validProviders.join(', ')}`);
@@ -14,8 +14,13 @@ export function getConfig(): ActionConfig {
     throw new Error(`Invalid mode: ${mode}. Must be 'generate', 'generate-only', or 'migrate'.`);
   }
 
+  // BYO-LLM providers authenticate with their own env keys; the GreenCI API
+  // key is only required for the hosted provider (still used for optional
+  // trace uploads if provided).
+  const apiKeyRequired = provider === 'greenci';
+
   return {
-    apiKey: core.getInput('api-key', { required: true }),
+    apiKey: core.getInput('api-key', { required: apiKeyRequired }),
     llmProvider: provider as LLMProvider,
     llmModel: core.getInput('llm-model') || '',
     awsRegion: core.getInput('aws-region') || 'us-east-1',

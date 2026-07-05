@@ -12,7 +12,7 @@ export interface ActionConfig {
     mode: OperationMode;
     cypressDir: string;
 }
-export type LLMProvider = 'greenci' | 'bedrock' | 'azure-openai' | 'openai' | 'ollama';
+export type LLMProvider = 'greenci' | 'anthropic' | 'openai' | 'bedrock' | 'azure-openai' | 'ollama';
 export interface ChangedFile {
     filename: string;
     status: FileStatus;
@@ -61,6 +61,18 @@ export interface GeneratedTest {
     code: string;
     description: string;
     confidence: number;
+    /** Present on tests returned by the heal endpoint */
+    verdict?: HealVerdict;
+}
+export interface HealVerdict {
+    classification: 'test-issue' | 'app-bug-suspected';
+    confidence: number;
+    reasoning: string;
+}
+export interface SuspectedBug {
+    filename: string;
+    reasoning: string;
+    error?: string;
 }
 export interface TestResult {
     filename: string;
@@ -84,6 +96,10 @@ export interface RunReport {
     duration: number;
     tests: TestResult[];
     committedFiles: string[];
+    /** Healed tests with their verdicts, for evidence in the PR report */
+    healedTests?: GeneratedTest[];
+    /** Failures the healer classified as likely real app regressions */
+    suspectedBugs?: SuspectedBug[];
 }
 export interface ILLMClient {
     generateTests(context: ChangeContext, config: ActionConfig): Promise<GeneratedTest[]>;

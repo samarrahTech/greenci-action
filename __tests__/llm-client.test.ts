@@ -34,9 +34,25 @@ describe('createLLMClient', () => {
   });
 
   it('should throw for unimplemented providers instead of silently using the hosted API', () => {
-    for (const p of ['bedrock', 'openai', 'azure-openai', 'ollama'] as const) {
+    for (const p of ['bedrock', 'azure-openai', 'ollama'] as const) {
       expect(() => createLLMClient({ ...mockConfig, llmProvider: p })).toThrow('not supported yet');
     }
+  });
+
+  it('should create BYO clients when env keys are present', () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    process.env.OPENAI_API_KEY = 'sk-test';
+    expect(createLLMClient({ ...mockConfig, llmProvider: 'anthropic' })).toBeDefined();
+    expect(createLLMClient({ ...mockConfig, llmProvider: 'openai' })).toBeDefined();
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  it('should throw a clear error when a BYO env key is missing', () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    expect(() => createLLMClient({ ...mockConfig, llmProvider: 'anthropic' })).toThrow('ANTHROPIC_API_KEY');
+    expect(() => createLLMClient({ ...mockConfig, llmProvider: 'openai' })).toThrow('OPENAI_API_KEY');
   });
 
   it('should throw for unknown provider', () => {
