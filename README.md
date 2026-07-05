@@ -52,9 +52,9 @@ jobs:
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `api-key` | GreenCI API key | ✅ | — |
-| `llm-provider` | LLM provider (`greenci`, `bedrock`, `azure-openai`, `openai`, `ollama`) | ❌ | `greenci` |
+| `llm-provider` | LLM provider. Only `greenci` (hosted) is supported today; `bedrock`, `azure-openai`, `openai`, and `ollama` are on the roadmap and fail fast if selected | ❌ | `greenci` |
 | `llm-model` | LLM model name | ❌ | `''` |
-| `aws-region` | AWS region for Bedrock | ❌ | `us-east-1` |
+| `aws-region` | AWS region for Bedrock (reserved for future BYO-LLM support) | ❌ | `us-east-1` |
 | `test-dir` | Directory to save generated tests | ❌ | `e2e` |
 | `base-url` | App base URL for E2E tests | ❌ | `http://localhost:3000` |
 | `max-retries` | Max self-healing retries | ❌ | `2` |
@@ -73,21 +73,6 @@ jobs:
 | `report-url` | URL to the PR comment with full report |
 
 ## Examples
-
-### With AWS Bedrock
-
-```yaml
-- uses: greenci/greenci-action@v1
-  with:
-    api-key: ${{ secrets.GREENCI_API_KEY }}
-    llm-provider: bedrock
-    llm-model: anthropic.claude-3-sonnet-20240229-v1:0
-    aws-region: us-west-2
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-```
 
 ### Custom Test Directory and Base URL
 
@@ -192,6 +177,19 @@ GreenCI posts a detailed summary comment on your PR:
 - 📝 List of committed test files
 - 📂 Files analyzed
 - ⏱️ Total duration
+
+## Data Sent to the GreenCI API
+
+To generate and heal tests, the action sends the following to the GreenCI API (`greenci-api-url`, default `https://api.greenci.ai`):
+
+- The PR diff (patch hunks of changed files) and the list of changed file paths
+- Detected routes, component names, and API endpoint signatures
+- The contents of your existing E2E test files (so generated tests match your conventions)
+- On self-heal: the failing test's code and its error output
+- On migrate: your Cypress test source
+- If `project-id` is set: Playwright trace archives for the dashboard
+
+This data is processed transiently to generate tests and is not used to train models. If your repository cannot share code with an external API, do not use the hosted service.
 
 ## License
 

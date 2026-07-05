@@ -32,7 +32,7 @@ export async function healFailedTests(
         );
 
         // Write and run the healed test
-        await writeTests([healedTest], workDir);
+        await writeTests([healedTest], workDir, config.testDir);
         const [healedResult] = await runTests([healedTest], config, workDir);
 
         if (healedResult.passed) {

@@ -6,6 +6,7 @@ jest.mock('@actions/core');
 const mockExistsSync = jest.fn();
 const mockReaddirSync = jest.fn();
 const mockReadFileSync = jest.fn();
+const mockStatSync = jest.fn();
 jest.mock('fs', () => {
   const actual = jest.requireActual('fs');
   return {
@@ -13,6 +14,7 @@ jest.mock('fs', () => {
     existsSync: (...args: unknown[]) => mockExistsSync(...args),
     readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
     readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+    statSync: (...args: unknown[]) => mockStatSync(...args),
   };
 });
 
@@ -20,6 +22,7 @@ describe('uploadTraces', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     global.fetch = jest.fn();
+    mockStatSync.mockReturnValue({ size: 1024 });
   });
 
   afterEach(() => {
@@ -52,9 +55,20 @@ describe('uploadTraces', () => {
       'https://api.greenci.ai/v1/traces',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({ 'X-API-Key': 'mock-key' }),
+        headers: expect.objectContaining({ Authorization: 'Bearer mock-key' }),
       })
     );
+  });
+
+  it('should skip traces over the 50MB API limit without uploading', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReaddirSync.mockReturnValue([{ name: 'trace.zip', isDirectory: () => false }]);
+    mockStatSync.mockReturnValue({ size: 51 * 1024 * 1024 });
+
+    await uploadTraces('/results', 'https://api.greenci.ai', 'mock-key', 'proj-1', 'run-1');
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('exceeds the 50MB trace limit'));
   });
 
   it('should warn on upload failure', async () => {

@@ -18,7 +18,7 @@ inputs:
     required: false
     default: 'cypress/e2e'
   llm-provider:
-    description: 'LLM provider (greenci, bedrock, azure-openai, openai, ollama)'
+    description: "LLM provider. Only 'greenci' (hosted) is supported today; bedrock/azure-openai/openai/ollama are on the roadmap and fail fast if selected."
     required: false
     default: 'greenci'
   llm-model:

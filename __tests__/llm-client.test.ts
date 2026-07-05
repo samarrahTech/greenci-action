@@ -1,4 +1,3 @@
-import * as core from '@actions/core';
 import { createLLMClient } from '../src/llm-client';
 import { ActionConfig, ChangeContext } from '../src/types';
 
@@ -34,12 +33,10 @@ describe('createLLMClient', () => {
     expect(client.healTest).toBeDefined();
   });
 
-  it('should warn and fallback for unimplemented providers', () => {
+  it('should throw for unimplemented providers instead of silently using the hosted API', () => {
     for (const p of ['bedrock', 'openai', 'azure-openai', 'ollama'] as const) {
-      const client = createLLMClient({ ...mockConfig, llmProvider: p });
-      expect(client).toBeDefined();
+      expect(() => createLLMClient({ ...mockConfig, llmProvider: p })).toThrow('not supported yet');
     }
-    expect(core.warning).toHaveBeenCalled();
   });
 
   it('should throw for unknown provider', () => {
@@ -76,31 +73,16 @@ describe('GreenCIClient', () => {
       );
     });
 
-    it('should fallback to mock tests on API error', async () => {
-      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500 });
-      const result = await client.generateTests(mockContext, mockConfig);
-      expect(result.length).toBeGreaterThan(0);
-      // Should generate route + API endpoint tests
-      expect(result.some((t) => t.filename.includes('dashboard'))).toBe(true);
+    it('should throw on API error instead of committing mock tests', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+      await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow(
+        'GreenCI test generation failed (HTTP 500)'
+      );
     });
 
-    it('should fallback to mock tests on fetch failure', async () => {
+    it('should throw on fetch failure', async () => {
       (global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'));
-      const result = await client.generateTests(mockContext, mockConfig);
-      expect(result.length).toBeGreaterThan(0);
-    });
-
-    it('should generate smoke test when no routes or endpoints', async () => {
-      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500 });
-      const emptyContext: ChangeContext = {
-        routes: [],
-        components: [],
-        apiEndpoints: [],
-        modifiedFiles: [{ filename: 'src/app.ts', status: 'modified', additions: 1, deletions: 0 }],
-        summary: '',
-      };
-      const result = await client.generateTests(emptyContext, mockConfig);
-      expect(result.some((t) => t.filename.includes('smoke'))).toBe(true);
+      await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow('Network error');
     });
   });
 
@@ -122,24 +104,20 @@ describe('GreenCIClient', () => {
       expect(result).toEqual(healedTest);
     });
 
-    it('should return original test on API failure', async () => {
-      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500 });
+    it('should throw on API failure so the heal attempt is not silently wasted', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500, text: async () => '' });
       const originalTest = { filename: 'e2e/test.spec.ts', code: 'original', description: 'test', confidence: 0.5 };
-      const result = await client.healTest(
-        { test: originalTest, error: 'err', attempt: 1, context: mockContext },
-        mockConfig
-      );
-      expect(result).toEqual(originalTest);
+      await expect(
+        client.healTest({ test: originalTest, error: 'err', attempt: 1, context: mockContext }, mockConfig)
+      ).rejects.toThrow('GreenCI heal API returned 500');
     });
 
-    it('should return original test on network error', async () => {
+    it('should throw on network error', async () => {
       (global.fetch as jest.Mock).mockRejectedValue(new Error('fail'));
       const originalTest = { filename: 'e2e/test.spec.ts', code: 'original', description: 'test', confidence: 0.5 };
-      const result = await client.healTest(
-        { test: originalTest, error: 'err', attempt: 1, context: mockContext },
-        mockConfig
-      );
-      expect(result).toEqual(originalTest);
+      await expect(
+        client.healTest({ test: originalTest, error: 'err', attempt: 1, context: mockContext }, mockConfig)
+      ).rejects.toThrow('fail');
     });
   });
 

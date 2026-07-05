@@ -24,10 +24,24 @@ export function createLLMClient(config: ActionConfig): ILLMClient {
     case 'openai':
     case 'azure-openai':
     case 'ollama':
-      core.warning(`Provider '${config.llmProvider}' not yet implemented, falling back to GreenCI mock`);
-      return new GreenCIClient();
+      // Do NOT silently fall back to the hosted API: users choosing their own
+      // provider often do so for data-privacy reasons, and their code must not
+      // leave their environment without an explicit opt-in.
+      throw new Error(
+        `LLM provider '${config.llmProvider}' is not supported yet. ` +
+          `Set llm-provider to 'greenci' (hosted) or watch the roadmap for BYO-LLM support.`,
+      );
     default:
       throw new Error(`Unknown LLM provider: ${config.llmProvider}`);
+  }
+}
+
+/** Read an error body safely for diagnostics without throwing. */
+async function readErrorBody(response: Response): Promise<string> {
+  try {
+    return (await response.text()).slice(0, 300);
+  } catch {
+    return '';
   }
 }
 
@@ -97,15 +111,20 @@ class GreenCIClient implements ILLMClient {
       });
 
       if (!response.ok) {
-        core.warning(`GreenCI API returned ${response.status}, using mock response`);
-        return this.mockGenerateTests(context, config);
+        const body = await readErrorBody(response);
+        throw new Error(
+          `GreenCI test generation failed (HTTP ${response.status})${body ? `: ${body}` : ''}. ` +
+            `Check that your greenci-api-key is valid and your plan has remaining quota. No tests were generated.`,
+        );
       }
 
       const data = (await response.json()) as { tests: GeneratedTest[] };
       return data.tests;
     } catch (error) {
-      core.warning(`GreenCI API call failed: ${error}. Using mock response.`);
-      return this.mockGenerateTests(context, config);
+      if (error instanceof Error && error.message.startsWith('GreenCI test generation failed')) {
+        throw error;
+      }
+      throw new Error(`GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`);
     }
   }
 
@@ -134,123 +153,16 @@ class GreenCIClient implements ILLMClient {
       });
 
       if (!response.ok) {
-        core.warning(`GreenCI heal API returned ${response.status}, returning original test`);
-        return request.test;
+        const body = await readErrorBody(response);
+        throw new Error(`GreenCI heal API returned ${response.status}${body ? `: ${body}` : ''}`);
       }
 
       const data = (await response.json()) as { test: GeneratedTest };
       return data.test;
     } catch (error) {
-      core.warning(`GreenCI heal API failed: ${error}. Returning original test.`);
-      return request.test;
+      // Surface the failure to the self-healing loop; retrying the identical
+      // failing test would waste retry attempts and hide the API problem.
+      throw error instanceof Error ? error : new Error(String(error));
     }
-  }
-
-  private mockGenerateTests(context: ChangeContext, config: ActionConfig): GeneratedTest[] {
-    const tests: GeneratedTest[] = [];
-
-    // Generate tests for new routes
-    for (const route of context.routes) {
-      tests.push({
-        filename: `${config.testDir}/${route.path.replace(/^\//, '').replace(/\//g, '-') || 'home'}.spec.ts`,
-        code: this.mockRouteTest(route.path, config.baseUrl),
-        description: `E2E test for route ${route.path}`,
-        confidence: 0.8,
-      });
-    }
-
-    // Generate tests for API endpoints
-    for (const endpoint of context.apiEndpoints) {
-      tests.push({
-        filename: `${config.testDir}/api-${endpoint.path.replace(/^\/api\//, '').replace(/\//g, '-')}.spec.ts`,
-        code: this.mockAPITest(endpoint.path, endpoint.method, config.baseUrl),
-        description: `API test for ${endpoint.method} ${endpoint.path}`,
-        confidence: 0.75,
-      });
-    }
-
-    // If no specific tests, generate a smoke test for modified components
-    if (tests.length === 0 && context.modifiedFiles.length > 0) {
-      tests.push({
-        filename: `${config.testDir}/smoke.spec.ts`,
-        code: this.mockSmokeTest(config.baseUrl),
-        description: 'Smoke test for modified components',
-        confidence: 0.6,
-      });
-    }
-
-    return tests;
-  }
-
-  private mockRouteTest(route: string, baseUrl: string): string {
-    return `import { test, expect } from '@playwright/test';
-
-test.describe('${route}', () => {
-  test('should load successfully', async ({ page }) => {
-    await page.goto('${baseUrl}${route}');
-    await expect(page).toHaveURL('${baseUrl}${route}');
-    await expect(page.locator('body')).toBeVisible();
-  });
-
-  test('should not have console errors', async ({ page }) => {
-    const errors: string[] = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') errors.push(msg.text());
-    });
-    await page.goto('${baseUrl}${route}');
-    await page.waitForLoadState('networkidle');
-    expect(errors).toHaveLength(0);
-  });
-
-  test('should be accessible', async ({ page }) => {
-    await page.goto('${baseUrl}${route}');
-    const title = await page.title();
-    expect(title).toBeTruthy();
-  });
-});
-`;
-  }
-
-  private mockAPITest(path: string, method: string, baseUrl: string): string {
-    return `import { test, expect } from '@playwright/test';
-
-test.describe('API: ${method} ${path}', () => {
-  test('should respond with valid status', async ({ request }) => {
-    const response = await request.${method.toLowerCase()}('${baseUrl}${path}');
-    expect(response.status()).toBeLessThan(500);
-  });
-
-  test('should return valid JSON', async ({ request }) => {
-    const response = await request.${method.toLowerCase()}('${baseUrl}${path}');
-    if (response.ok()) {
-      const body = await response.json();
-      expect(body).toBeDefined();
-    }
-  });
-});
-`;
-  }
-
-  private mockSmokeTest(baseUrl: string): string {
-    return `import { test, expect } from '@playwright/test';
-
-test.describe('Smoke Tests', () => {
-  test('homepage loads successfully', async ({ page }) => {
-    await page.goto('${baseUrl}');
-    await expect(page).toHaveURL('${baseUrl}');
-    await expect(page.locator('body')).toBeVisible();
-  });
-
-  test('no JavaScript errors on homepage', async ({ page }) => {
-    const errors: string[] = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') errors.push(msg.text());
-    });
-    await page.goto('${baseUrl}');
-    await page.waitForLoadState('networkidle');
-    expect(errors).toHaveLength(0);
-  });
-});
-`;
   }
 }
