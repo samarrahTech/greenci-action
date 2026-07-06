@@ -9,6 +9,7 @@ import { commitTests } from './git-ops';
 import { postReport } from './pr-reporter';
 import { runMigration, buildMigrationReportBody } from './migrator';
 import { uploadTraces } from './trace-uploader';
+import { uploadResults } from './results-uploader';
 
 async function run(): Promise<void> {
   try {
@@ -112,7 +113,10 @@ async function run(): Promise<void> {
       core.setOutput('report-url', reportUrl);
     }
 
-    // 7. Upload traces to dashboard
+    // 7. Upload run results + traces to the dashboard
+    if (config.apiKey) {
+      await uploadResults(config.greenCIApiUrl, config.apiKey, prContext, report);
+    }
     const projectId = core.getInput('project-id');
     if (config.apiKey && projectId) {
       const runIdStr = process.env.GITHUB_RUN_ID || 'unknown';

@@ -30707,7 +30707,8 @@ function getConfig() {
         awsRegion: core.getInput('aws-region') || 'us-east-1',
         testDir: core.getInput('test-dir') || 'e2e',
         baseUrl: core.getInput('base-url') || 'http://localhost:3000',
-        maxRetries: parseInt(core.getInput('max-retries') || '2', 10),
+        // The heal API caps attempt at 5; clamp so extra retries don't 400
+        maxRetries: Math.min(Math.max(parseInt(core.getInput('max-retries') || '2', 10) || 0, 0), 5),
         autoCommit: (core.getInput('auto-commit') || 'true') === 'true',
         greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
         mode,
@@ -31490,6 +31491,7 @@ const git_ops_1 = __nccwpck_require__(7482);
 const pr_reporter_1 = __nccwpck_require__(6183);
 const migrator_1 = __nccwpck_require__(1440);
 const trace_uploader_1 = __nccwpck_require__(8441);
+const results_uploader_1 = __nccwpck_require__(6444);
 async function run() {
     try {
         const config = (0, config_1.getConfig)();
@@ -31578,7 +31580,10 @@ async function run() {
             const reportUrl = await (0, pr_reporter_1.postReport)(token, prContext, report);
             core.setOutput('report-url', reportUrl);
         }
-        // 7. Upload traces to dashboard
+        // 7. Upload run results + traces to the dashboard
+        if (config.apiKey) {
+            await (0, results_uploader_1.uploadResults)(config.greenCIApiUrl, config.apiKey, prContext, report);
+        }
         const projectId = core.getInput('project-id');
         if (config.apiKey && projectId) {
             const runIdStr = process.env.GITHUB_RUN_ID || 'unknown';
@@ -32757,6 +32762,105 @@ exports.OpenAIClient = OpenAIClient;
 
 /***/ }),
 
+/***/ 6444:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.uploadResults = uploadResults;
+const core = __importStar(__nccwpck_require__(7484));
+/**
+ * Post the run summary to the GreenCI API so the dashboard's "Recent runs"
+ * view (pass/fail counts, self-heals, suspected app bugs) has data.
+ * Non-fatal: a dashboard hiccup must never fail the user's CI.
+ */
+async function uploadResults(apiUrl, apiKey, prContext, report) {
+    const verdicts = [
+        ...(report.healedTests ?? [])
+            .filter((t) => t.verdict)
+            .map((t) => ({
+            filename: t.filename,
+            classification: t.verdict.classification,
+            reasoning: t.verdict.reasoning,
+        })),
+        ...(report.suspectedBugs ?? []).map((b) => ({
+            filename: b.filename,
+            classification: 'app-bug-suspected',
+            reasoning: b.reasoning,
+        })),
+    ];
+    try {
+        const res = await fetch(`${apiUrl}/v1/results`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                repository: `${prContext.owner}/${prContext.repo}`,
+                commit: prContext.headSha,
+                branch: prContext.branch,
+                pr_number: prContext.prNumber,
+                total_tests: report.testsGenerated,
+                passed_tests: report.testsPassed,
+                failed_tests: report.testsFailed,
+                self_healing_events: report.testsHealed,
+                suspected_app_bugs: report.suspectedBugs?.length ?? 0,
+                verdicts,
+                execution_time: `${(report.duration / 1000).toFixed(1)}s`,
+                environment: 'ci',
+                framework: 'playwright',
+            }),
+        });
+        if (res.ok) {
+            core.info('📊 Run results uploaded to the GreenCI dashboard');
+        }
+        else {
+            core.warning(`Results upload failed: ${res.status} ${res.statusText}`);
+        }
+    }
+    catch (err) {
+        core.warning(`Results upload error: ${err instanceof Error ? err.message : err}`);
+    }
+}
+
+
+/***/ }),
+
 /***/ 6523:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -33038,6 +33142,11 @@ const path = __importStar(__nccwpck_require__(6928));
 async function writeTests(tests, workDir, testDir = 'e2e') {
     const writtenFiles = [];
     for (const test of tests) {
+        // Models sometimes emit filenames already prefixed with the test dir
+        // (e.g. "e2e/auth.spec.ts") — strip it to avoid e2e/e2e/ nesting.
+        if (test.filename.startsWith(`${testDir}/`)) {
+            test.filename = test.filename.slice(testDir.length + 1);
+        }
         const filePath = path.join(workDir, testDir, test.filename);
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {

@@ -8,6 +8,11 @@ export async function writeTests(tests: GeneratedTest[], workDir: string, testDi
   const writtenFiles: string[] = [];
 
   for (const test of tests) {
+    // Models sometimes emit filenames already prefixed with the test dir
+    // (e.g. "e2e/auth.spec.ts") — strip it to avoid e2e/e2e/ nesting.
+    if (test.filename.startsWith(`${testDir}/`)) {
+      test.filename = test.filename.slice(testDir.length + 1);
+    }
     const filePath = path.join(workDir, testDir, test.filename);
     const dir = path.dirname(filePath);
 

@@ -40,7 +40,7 @@ jobs:
       - name: Wait for app
         run: npx wait-on http://localhost:3000
 
-      - uses: greenci/greenci-action@v1
+      - uses: samarrahTech/greenci-action@v1
         with:
           api-key: ${{ secrets.GREENCI_API_KEY }}
         env:
@@ -61,6 +61,8 @@ jobs:
 | `auto-commit` | Auto-commit passing tests to PR | ❌ | `true` |
 | `greenci-api-url` | GreenCI API endpoint | ❌ | `https://api.greenci.ai` |
 | `mode` | Operation mode (`generate` or `migrate`) | ❌ | `generate` |
+| `project-id` | GreenCI project ID — enables trace uploads to the dashboard (copy it from your project page at app.greenci.ai) | ❌ | `''` |
+| `github-token` | Token for PR comments and auto-commit | ❌ | `${{ github.token }}` |
 | `cypress-dir` | Cypress tests directory (for migrate mode) | ❌ | `cypress/e2e` |
 
 ## Outputs
@@ -79,7 +81,7 @@ jobs:
 With a BYO-LLM provider, the action calls your LLM provider directly from the runner — your diff and tests are never sent to the GreenCI API. You pay your provider directly; no GreenCI API key or quota is needed.
 
 ```yaml
-- uses: greenci/greenci-action@v1
+- uses: samarrahTech/greenci-action@v1
   with:
     llm-provider: anthropic          # or: openai
     # llm-model: claude-opus-4-8     # optional override (openai default: gpt-4o)
@@ -91,7 +93,7 @@ With a BYO-LLM provider, the action calls your LLM provider directly from the ru
 ### Custom Test Directory and Base URL
 
 ```yaml
-- uses: greenci/greenci-action@v1
+- uses: samarrahTech/greenci-action@v1
   with:
     api-key: ${{ secrets.GREENCI_API_KEY }}
     test-dir: tests/e2e
@@ -103,7 +105,7 @@ With a BYO-LLM provider, the action calls your LLM provider directly from the ru
 ### Without Auto-Commit
 
 ```yaml
-- uses: greenci/greenci-action@v1
+- uses: samarrahTech/greenci-action@v1
   with:
     api-key: ${{ secrets.GREENCI_API_KEY }}
     auto-commit: 'false'
@@ -114,7 +116,7 @@ With a BYO-LLM provider, the action calls your LLM provider directly from the ru
 ### Using Outputs
 
 ```yaml
-- uses: greenci/greenci-action@v1
+- uses: samarrahTech/greenci-action@v1
   id: greenci
   with:
     api-key: ${{ secrets.GREENCI_API_KEY }}
@@ -131,7 +133,7 @@ With a BYO-LLM provider, the action calls your LLM provider directly from the ru
 GreenCI can automatically migrate your Cypress E2E tests to Playwright:
 
 ```yaml
-- uses: greenci/greenci-action@v1
+- uses: samarrahTech/greenci-action@v1
   with:
     api-key: ${{ secrets.GREENCI_API_KEY }}
     mode: migrate

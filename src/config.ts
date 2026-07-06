@@ -26,7 +26,8 @@ export function getConfig(): ActionConfig {
     awsRegion: core.getInput('aws-region') || 'us-east-1',
     testDir: core.getInput('test-dir') || 'e2e',
     baseUrl: core.getInput('base-url') || 'http://localhost:3000',
-    maxRetries: parseInt(core.getInput('max-retries') || '2', 10),
+    // The heal API caps attempt at 5; clamp so extra retries don't 400
+    maxRetries: Math.min(Math.max(parseInt(core.getInput('max-retries') || '2', 10) || 0, 0), 5),
     autoCommit: (core.getInput('auto-commit') || 'true') === 'true',
     greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
     mode,
