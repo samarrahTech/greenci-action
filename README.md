@@ -76,6 +76,41 @@ jobs:
 
 ## Examples
 
+### Bootstrap: generate a foundational suite for an app with no tests
+
+You don't need to wait for PRs — describe your critical journeys in plain English and run once (e.g. via `workflow_dispatch`). GreenCI captures the rendered HTML of your key pages for real selectors, generates a spec per journey, runs and heals the suite against your app, and **opens a PR** with the verified-passing tests. Journeys behind login get `storageState` scaffolding with TODOs.
+
+```yaml
+name: GreenCI Bootstrap
+on: workflow_dispatch
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          npm ci
+          npm run dev &
+          npx wait-on http://localhost:3000
+      - uses: samarrahTech/greenci-action@v1
+        with:
+          api-key: ${{ secrets.GREENCI_API_KEY }}
+          mode: bootstrap
+          base-url: http://localhost:3000
+          journeys: |
+            Sign in with email and password at /login
+            Search for a job from the homepage and open a listing
+            Post a new job at /jobs/new and reach the payment step
+            Upload a resume from the profile page at /profile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Mention URL paths in a journey (like `/login`) and GreenCI fetches that page's rendered HTML so selectors are grounded in your real DOM. After the bootstrap PR merges, the default `generate` mode keeps the suite growing with every PR.
+
 ### Bring Your Own LLM (Anthropic or OpenAI)
 
 With a BYO-LLM provider, the action calls your LLM provider directly from the runner — your diff and tests are never sent to the GreenCI API. You pay your provider directly; no GreenCI API key or quota is needed.

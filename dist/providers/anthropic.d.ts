@@ -8,6 +8,10 @@ export declare class AnthropicClient implements ILLMClient {
     constructor(apiKey?: string);
     private complete;
     generateTests(context: ChangeContext, config: ActionConfig): Promise<GeneratedTest[]>;
+    bootstrapTests(journeys: string[], pages: {
+        url: string;
+        html: string;
+    }[], config: ActionConfig, existingTests?: string[]): Promise<GeneratedTest[]>;
     healTest(request: SelfHealRequest, config: ActionConfig): Promise<GeneratedTest>;
     migrateTest(cypressSource: string, staticConversion: string, config: ActionConfig): Promise<string>;
 }

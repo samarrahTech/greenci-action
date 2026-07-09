@@ -1,4 +1,4 @@
-export type OperationMode = 'generate' | 'generate-only' | 'migrate';
+export type OperationMode = 'generate' | 'generate-only' | 'migrate' | 'bootstrap';
 export interface ActionConfig {
     apiKey: string;
     llmProvider: LLMProvider;
@@ -11,6 +11,7 @@ export interface ActionConfig {
     greenCIApiUrl: string;
     mode: OperationMode;
     cypressDir: string;
+    journeys: string;
 }
 export type LLMProvider = 'greenci' | 'anthropic' | 'openai' | 'bedrock' | 'azure-openai' | 'ollama';
 export interface ChangedFile {
@@ -105,6 +106,10 @@ export interface ILLMClient {
     generateTests(context: ChangeContext, config: ActionConfig): Promise<GeneratedTest[]>;
     healTest(request: SelfHealRequest, config: ActionConfig): Promise<GeneratedTest>;
     migrateTest?(cypressSource: string, staticConversion: string, config: ActionConfig): Promise<string>;
+    bootstrapTests?(journeys: string[], pages: {
+        url: string;
+        html: string;
+    }[], config: ActionConfig, existingTests?: string[]): Promise<GeneratedTest[]>;
 }
 export interface CypressCommand {
     type: string;

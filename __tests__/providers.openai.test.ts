@@ -15,6 +15,7 @@ const mockConfig: ActionConfig = {
   greenCIApiUrl: 'https://api.greenci.ai',
   mode: 'generate',
   cypressDir: 'cypress/e2e',
+  journeys: '',
 };
 
 const mockContext: ChangeContext = {

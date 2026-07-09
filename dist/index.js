@@ -30645,6 +30645,260 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
+/***/ 4383:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseJourneys = parseJourneys;
+exports.collectPaths = collectPaths;
+exports.sanitizeHtml = sanitizeHtml;
+exports.fetchPages = fetchPages;
+const core = __importStar(__nccwpck_require__(7484));
+const MAX_PAGES = 6;
+const MAX_HTML_PER_PAGE = 50000;
+/** Parse the multiline `journeys` input into individual journey descriptions. */
+function parseJourneys(input) {
+    return input
+        .split('\n')
+        .map((line) => line.replace(/^\s*[-*\d.)]+\s*/, '').trim())
+        .filter(Boolean);
+}
+/**
+ * Collect the URL paths to fetch for grounding: the app root plus any
+ * absolute paths mentioned in the journey text (e.g. "/jobs/new").
+ */
+function collectPaths(journeys) {
+    const paths = new Set(['/']);
+    const pathRegex = /(?:^|\s|\(|"|')(\/[a-zA-Z0-9\-_./?=&]*)/g;
+    for (const journey of journeys) {
+        let match;
+        while ((match = pathRegex.exec(journey)) !== null) {
+            const p = match[1].replace(/[.,)]+$/, '');
+            if (p.length > 1)
+                paths.add(p);
+        }
+    }
+    return [...paths].slice(0, MAX_PAGES);
+}
+/** Strip scripts/styles/svg/comments and collapse whitespace so real DOM structure fits the prompt. */
+function sanitizeHtml(html) {
+    const stripped = html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<svg[\s\S]*?<\/svg>/gi, '<svg/>')
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return stripped.slice(0, MAX_HTML_PER_PAGE);
+}
+/**
+ * Fetch the rendered HTML of the app's key pages so generated selectors are
+ * grounded in the real DOM. Non-fatal per page: a 404 path just gets skipped.
+ */
+async function fetchPages(baseUrl, journeys) {
+    const pages = [];
+    for (const path of collectPaths(journeys)) {
+        const url = new URL(path, baseUrl).toString();
+        try {
+            const res = await fetch(url, { headers: { Accept: 'text/html' }, redirect: 'follow' });
+            if (!res.ok) {
+                core.warning(`Skipping ${url}: HTTP ${res.status}`);
+                continue;
+            }
+            const html = sanitizeHtml(await res.text());
+            if (html) {
+                pages.push({ url: path, html });
+                core.info(`📄 Captured ${url} (${html.length} chars)`);
+            }
+        }
+        catch (err) {
+            core.warning(`Could not fetch ${url}: ${err instanceof Error ? err.message : err}`);
+        }
+    }
+    return pages;
+}
+
+
+/***/ }),
+
+/***/ 7628:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.runBootstrap = runBootstrap;
+const core = __importStar(__nccwpck_require__(7484));
+const path = __importStar(__nccwpck_require__(6928));
+const bootstrap_context_1 = __nccwpck_require__(4383);
+const existing_tests_1 = __nccwpck_require__(2738);
+const test_runner_1 = __nccwpck_require__(7194);
+const self_healer_1 = __nccwpck_require__(6523);
+const git_ops_1 = __nccwpck_require__(7482);
+/**
+ * Bootstrap mode: build a foundational suite for an app with no tests.
+ * Journeys (plain English) + rendered page HTML → generate → run → heal →
+ * open a PR with the passing suite.
+ */
+async function runBootstrap(config, llmClient, workDir, token, repo) {
+    if (!llmClient.bootstrapTests) {
+        throw new Error(`The '${config.llmProvider}' provider does not support bootstrap mode.`);
+    }
+    const journeys = (0, bootstrap_context_1.parseJourneys)(config.journeys);
+    core.info(`🧭 Bootstrapping suite for ${journeys.length} journey(s)`);
+    core.info('📄 Capturing rendered pages for selector grounding...');
+    const pages = await (0, bootstrap_context_1.fetchPages)(config.baseUrl, journeys);
+    if (pages.length === 0) {
+        core.warning(`Could not fetch any pages from ${config.baseUrl} — is your app running in CI? ` +
+            'Generation will proceed but selectors will be less grounded.');
+    }
+    const existing = (0, existing_tests_1.readExistingTests)(workDir, config.testDir);
+    const existingTests = existing.length > 0 ? (0, existing_tests_1.formatExistingTestsForAPI)(existing) : undefined;
+    const generatedTests = await llmClient.bootstrapTests(journeys, pages, config, existingTests);
+    core.info(`Generated ${generatedTests.length} test file(s)`);
+    if (generatedTests.length === 0) {
+        return { testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, prUrl: null };
+    }
+    await (0, test_runner_1.writeTests)(generatedTests, workDir, config.testDir);
+    core.info('🏃 Running the bootstrap suite...');
+    const initialResults = await (0, test_runner_1.runTests)(generatedTests, config, workDir);
+    const failedTests = initialResults
+        .map((result, i) => ({ test: generatedTests[i], result }))
+        .filter(({ result }) => !result.passed);
+    let healed = [];
+    let healedResults = [];
+    let suspectedBugs = [];
+    if (failedTests.length > 0 && config.maxRetries > 0) {
+        core.info(`🔧 Healing ${failedTests.length} failing bootstrap test(s)...`);
+        const healing = await (0, self_healer_1.healFailedTests)(failedTests, emptyChangeContext(), config, llmClient, workDir);
+        healed = healing.healed;
+        healedResults = healing.results;
+        suspectedBugs = healing.suspectedBugs;
+    }
+    const allResults = [...initialResults.filter((r) => r.passed), ...healedResults];
+    const passed = allResults.filter((r) => r.passed);
+    const failed = allResults.filter((r) => !r.passed);
+    // Commit only the verified-passing suite; report the rest for human review
+    const passingFiles = passed.map((r) => path.join(workDir, config.testDir, r.filename));
+    let prUrl = null;
+    if (config.autoCommit && token && passingFiles.length > 0) {
+        const body = buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs);
+        const result = await (0, git_ops_1.createBootstrapPR)(token, repo.owner, repo.repo, passingFiles, workDir, body);
+        prUrl = result.prUrl;
+    }
+    else if (passingFiles.length === 0) {
+        core.warning('No bootstrap tests passed — nothing committed. See the run log for failures.');
+    }
+    return {
+        testsGenerated: generatedTests.length,
+        testsPassed: passed.length,
+        testsFailed: failed.length,
+        testsHealed: healed.length,
+        prUrl,
+    };
+}
+function emptyChangeContext() {
+    return { routes: [], components: [], apiEndpoints: [], modifiedFiles: [], summary: 'bootstrap' };
+}
+function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs) {
+    let body = '## 🌱 Foundational E2E suite generated by GreenCI\n\n';
+    body += 'This PR contains the **verified-passing** starter suite for your critical journeys. ';
+    body += 'Review it like any code: the tests are plain Playwright and fully yours.\n\n';
+    body += '### Journeys covered\n';
+    body += journeys.map((j) => `- ${j}`).join('\n') + '\n\n';
+    body += `### Results\n| | |\n|---|---|\n| Passing (committed) | ✅ ${passed.length} |\n`;
+    if (healed.length > 0)
+        body += `| Self-healed before passing | 🔧 ${healed.length} |\n`;
+    if (failed.length > 0)
+        body += `| Failing (NOT committed) | ❌ ${failed.length} |\n`;
+    body += '\n';
+    if (suspectedBugs.length > 0) {
+        body += '### 🚨 Possible app bugs found during bootstrap\n';
+        for (const bug of suspectedBugs) {
+            body += `- \`${bug.filename}\` — ${bug.reasoning}\n`;
+        }
+        body += '\n';
+    }
+    if (failed.length > 0) {
+        body += '### Failing tests (see the workflow log)\n';
+        body += failed.map((f) => `- \`${f.filename}\``).join('\n') + '\n\n';
+        body += 'Common causes: journeys behind login (set up Playwright `storageState` — see TODOs in the specs), or pages that need seeded data.\n\n';
+    }
+    body += '---\n*Generated by [GreenCI](https://greenci.ai) 🌱 — future PRs will keep this suite up to date automatically.*\n';
+    return body;
+}
+
+
+/***/ }),
+
 /***/ 2973:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -30693,8 +30947,13 @@ function getConfig() {
         throw new Error(`Invalid LLM provider: ${provider}. Must be one of: ${validProviders.join(', ')}`);
     }
     const mode = (core.getInput('mode') || 'generate');
-    if (mode !== 'generate' && mode !== 'generate-only' && mode !== 'migrate') {
-        throw new Error(`Invalid mode: ${mode}. Must be 'generate', 'generate-only', or 'migrate'.`);
+    if (mode !== 'generate' && mode !== 'generate-only' && mode !== 'migrate' && mode !== 'bootstrap') {
+        throw new Error(`Invalid mode: ${mode}. Must be 'generate', 'generate-only', 'migrate', or 'bootstrap'.`);
+    }
+    const journeys = core.getInput('journeys') || '';
+    if (mode === 'bootstrap' && !journeys.trim()) {
+        throw new Error("mode 'bootstrap' requires the `journeys` input — one critical user journey per line, e.g.\n" +
+            'journeys: |\n  Sign in with email and password\n  Post a new job listing and reach the payment step');
     }
     // BYO-LLM providers authenticate with their own env keys; the GreenCI API
     // key is only required for the hosted provider (still used for optional
@@ -30713,6 +30972,7 @@ function getConfig() {
         greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
         mode,
         cypressDir: core.getInput('cypress-dir') || 'cypress/e2e',
+        journeys,
     };
 }
 
@@ -31365,6 +31625,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.commitTests = commitTests;
+exports.createBootstrapPR = createBootstrapPR;
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
 const fs = __importStar(__nccwpck_require__(9896));
@@ -31437,6 +31698,78 @@ async function commitTests(token, prContext, testFiles, workDir) {
     core.info(`Committed ${committedFiles.length} test file(s) to ${prContext.branch}`);
     return committedFiles;
 }
+/**
+ * Bootstrap mode runs from workflow_dispatch with no PR context: commit the
+ * generated suite to a new branch off the default branch and open a PR.
+ * Returns the PR URL and the list of committed files.
+ */
+async function createBootstrapPR(token, owner, repo, testFiles, workDir, prBody) {
+    const octokit = github.getOctokit(token);
+    const { data: repoInfo } = await octokit.rest.repos.get({ owner, repo });
+    const defaultBranch = repoInfo.default_branch;
+    const { data: baseRef } = await octokit.rest.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${defaultBranch}`,
+    });
+    const { data: baseCommit } = await octokit.rest.git.getCommit({
+        owner,
+        repo,
+        commit_sha: baseRef.object.sha,
+    });
+    const branchName = `greenci/bootstrap-${process.env.GITHUB_RUN_ID || Date.now()}`;
+    await octokit.rest.git.createRef({
+        owner,
+        repo,
+        ref: `refs/heads/${branchName}`,
+        sha: baseRef.object.sha,
+    });
+    const treeItems = [];
+    const committedFiles = [];
+    for (const filePath of testFiles) {
+        if (!fs.existsSync(filePath)) {
+            core.warning(`Test file not found, skipping: ${filePath}`);
+            continue;
+        }
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const relativePath = path.relative(workDir, filePath);
+        const { data: blob } = await octokit.rest.git.createBlob({ owner, repo, content, encoding: 'utf-8' });
+        treeItems.push({ path: relativePath, mode: '100644', type: 'blob', sha: blob.sha });
+        committedFiles.push(relativePath);
+    }
+    if (treeItems.length === 0) {
+        throw new Error('Bootstrap produced no committable test files');
+    }
+    const { data: tree } = await octokit.rest.git.createTree({
+        owner,
+        repo,
+        base_tree: baseCommit.tree.sha,
+        tree: treeItems,
+    });
+    const { data: newCommit } = await octokit.rest.git.createCommit({
+        owner,
+        repo,
+        message: '🤖 GreenCI: Bootstrap foundational E2E test suite',
+        tree: tree.sha,
+        parents: [baseRef.object.sha],
+    });
+    await octokit.rest.git.updateRef({
+        owner,
+        repo,
+        ref: `heads/${branchName}`,
+        sha: newCommit.sha,
+    });
+    const { data: pr } = await octokit.rest.pulls.create({
+        owner,
+        repo,
+        title: '🌱 GreenCI: Foundational E2E test suite',
+        head: branchName,
+        base: defaultBranch,
+        body: prBody,
+    });
+    core.info(`Opened bootstrap PR #${pr.number}: ${pr.html_url}`);
+    return { prUrl: pr.html_url, committedFiles };
+}
 
 
 /***/ }),
@@ -31492,12 +31825,29 @@ const pr_reporter_1 = __nccwpck_require__(6183);
 const migrator_1 = __nccwpck_require__(1440);
 const trace_uploader_1 = __nccwpck_require__(8441);
 const results_uploader_1 = __nccwpck_require__(6444);
+const bootstrap_runner_1 = __nccwpck_require__(7628);
 async function run() {
     try {
         const config = (0, config_1.getConfig)();
         const token = core.getInput('github-token') || process.env.GITHUB_TOKEN || '';
         if (!token) {
             core.warning('No GitHub token provided. Commit and PR comment features will be disabled.');
+        }
+        // Bootstrap mode — build a foundational suite; runs from workflow_dispatch
+        if (config.mode === 'bootstrap') {
+            core.info('🌱 Running in bootstrap mode (foundational suite from journeys)');
+            const llmClient = (0, llm_client_1.createLLMClient)(config);
+            const workDir = process.env.GITHUB_WORKSPACE || process.cwd();
+            const github = await Promise.resolve().then(() => __importStar(__nccwpck_require__(3228)));
+            const outcome = await (0, bootstrap_runner_1.runBootstrap)(config, llmClient, workDir, token, github.context.repo);
+            core.setOutput('tests-generated', String(outcome.testsGenerated));
+            core.setOutput('tests-passed', String(outcome.testsPassed));
+            core.setOutput('tests-failed', String(outcome.testsFailed));
+            if (outcome.prUrl)
+                core.setOutput('report-url', outcome.prUrl);
+            core.info(`🌱 Bootstrap complete: ${outcome.testsPassed}/${outcome.testsGenerated} tests passing` +
+                (outcome.prUrl ? ` — PR: ${outcome.prUrl}` : ''));
+            return;
         }
         // Migration mode
         if (config.mode === 'migrate') {
@@ -31768,6 +32118,39 @@ class GreenCIClient {
         }
         catch (error) {
             if (error instanceof Error && error.message.startsWith('GreenCI test generation failed')) {
+                throw error;
+            }
+            throw new Error(`GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`);
+        }
+    }
+    async bootstrapTests(journeys, pages, config, existingTests) {
+        core.info(`Calling GreenCI API at ${config.greenCIApiUrl}/v1/bootstrap (${journeys.length} journeys, ${pages.length} pages)`);
+        try {
+            const response = await fetch(`${config.greenCIApiUrl}/v1/bootstrap`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${config.apiKey}`,
+                },
+                body: JSON.stringify({
+                    context: { journeys, pages, existingTests },
+                    config: {
+                        baseUrl: config.baseUrl,
+                        testDir: config.testDir,
+                        model: config.llmModel || undefined,
+                    },
+                }),
+            });
+            if (!response.ok) {
+                const body = await readErrorBody(response);
+                throw new Error(`GreenCI bootstrap failed (HTTP ${response.status})${body ? `: ${body}` : ''}. ` +
+                    `Check that your greenci-api-key is valid and your plan has remaining quota. No tests were generated.`);
+            }
+            const data = (await response.json());
+            return data.tests;
+        }
+        catch (error) {
+            if (error instanceof Error && error.message.startsWith('GreenCI bootstrap failed')) {
                 throw error;
             }
             throw new Error(`GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`);
@@ -32335,8 +32718,9 @@ function buildReportBody(report) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.MIGRATION_SYSTEM = exports.SELF_HEALING_SYSTEM = exports.TEST_GENERATION_SYSTEM = void 0;
+exports.MIGRATION_SYSTEM = exports.SELF_HEALING_SYSTEM = exports.BOOTSTRAP_SYSTEM = exports.TEST_GENERATION_SYSTEM = void 0;
 exports.buildGeneratePrompt = buildGeneratePrompt;
+exports.buildBootstrapPrompt = buildBootstrapPrompt;
 exports.buildHealPrompt = buildHealPrompt;
 exports.parseTestsFromResponse = parseTestsFromResponse;
 exports.parseHealVerdict = parseHealVerdict;
@@ -32404,6 +32788,44 @@ function buildGeneratePrompt(context, baseUrl) {
     }
     parts.push(`## Base URL: ${baseUrl}`);
     parts.push('\nGenerate comprehensive Playwright e2e tests covering the changed functionality. Focus on user-facing behavior. Return each test as a separate code block with `// filename: <name>.spec.ts` on the first line.');
+    return parts.join('\n');
+}
+exports.BOOTSTRAP_SYSTEM = `You are an expert QA engineer creating a FOUNDATIONAL Playwright E2E test suite for an existing production web application. You receive plain-English descriptions of the app's critical user journeys, plus the actual rendered HTML of key pages.
+
+## Grounding rules (CRITICAL)
+- Base every selector on the PROVIDED page HTML — real labels, roles, names, ids. Never invent elements.
+- Prefer accessible locators: getByRole > getByLabel > getByTestId > locator('css'). Ensure strict-mode safety (.first()/.filter() where markup repeats).
+- If a journey involves pages whose HTML was not provided, write the navigation steps conservatively (URL assertions, visible landmarks) rather than guessing detailed content.
+
+## Suite structure
+- One spec file per journey, named after the journey (e.g. job-posting-checkout.spec.ts).
+- 2-6 focused tests per journey: the happy path first, then the highest-value guard rails (validation, empty states).
+- Tests must be independent and idempotent. No fixed waits; rely on auto-waiting and web-first assertions.
+
+## Authentication
+- If a journey requires a logged-in user, structure the file to use Playwright storageState: reference an auth setup via test.use({ storageState: 'playwright/.auth/user.json' }) and add a clearly marked TODO comment telling the team to create the auth setup project (include a commented example setup file in the first such spec).
+- Never hardcode credentials.
+
+## Safety
+- NEVER write tests that perform destructive or costly real actions (real payments, sending real emails, deleting records) — stop at the confirmation step and assert the UI state, with a TODO noting where a sandbox/test account is needed.
+
+Output format: Return ONLY valid TypeScript/Playwright code. Each file wrapped in a code block with \`// filename: <name>.spec.ts\` on the first line.`;
+function buildBootstrapPrompt(journeys, pages, baseUrl, existingTests) {
+    const parts = [];
+    parts.push('## Critical User Journeys\n' + journeys.map((j, i) => `${i + 1}. ${j}`).join('\n') + '\n');
+    if (pages.length > 0) {
+        parts.push('## Rendered Page HTML (ground truth — derive selectors from this)');
+        for (const page of pages) {
+            parts.push('### ' + page.url + '\n```html\n' + page.html + '\n```\n');
+        }
+    }
+    if (existingTests && existingTests.length > 0) {
+        parts.push('## Existing Tests\nDo not duplicate coverage; match these conventions:\n```\n' +
+            existingTests.join('\n---\n') +
+            '\n```\n');
+    }
+    parts.push(`## Base URL: ${baseUrl}`);
+    parts.push('\nGenerate the foundational Playwright suite covering every journey above. One code block per file, each starting with `// filename: <name>.spec.ts`.');
     return parts.join('\n');
 }
 exports.SELF_HEALING_SYSTEM = `You are an expert at debugging and fixing Playwright end-to-end tests. When given a failing test and its error:
@@ -32605,6 +33027,12 @@ class AnthropicClient {
         const content = await this.complete(prompts_1.TEST_GENERATION_SYSTEM, (0, prompts_1.buildGeneratePrompt)(context, config.baseUrl), model);
         return (0, prompts_1.parseTestsFromResponse)(content);
     }
+    async bootstrapTests(journeys, pages, config, existingTests) {
+        const model = config.llmModel || DEFAULT_MODEL;
+        core.info(`Bootstrapping suite via Anthropic API (${model}) — ${journeys.length} journeys, ${pages.length} pages`);
+        const content = await this.complete(prompts_1.BOOTSTRAP_SYSTEM, (0, prompts_1.buildBootstrapPrompt)(journeys, pages, config.baseUrl, existingTests), model);
+        return (0, prompts_1.parseTestsFromResponse)(content);
+    }
     async healTest(request, config) {
         const model = config.llmModel || DEFAULT_MODEL;
         core.info(`Self-healing via Anthropic API (${model}), attempt ${request.attempt}`);
@@ -32729,6 +33157,12 @@ class OpenAIClient {
         const model = config.llmModel || DEFAULT_MODEL;
         core.info(`Generating tests via OpenAI API (${model}) — code stays between your runner and OpenAI`);
         const content = await this.complete(prompts_1.TEST_GENERATION_SYSTEM, (0, prompts_1.buildGeneratePrompt)(context, config.baseUrl), model);
+        return (0, prompts_1.parseTestsFromResponse)(content);
+    }
+    async bootstrapTests(journeys, pages, config, existingTests) {
+        const model = config.llmModel || DEFAULT_MODEL;
+        core.info(`Bootstrapping suite via OpenAI API (${model}) — ${journeys.length} journeys, ${pages.length} pages`);
+        const content = await this.complete(prompts_1.BOOTSTRAP_SYSTEM, (0, prompts_1.buildBootstrapPrompt)(journeys, pages, config.baseUrl, existingTests), model);
         return (0, prompts_1.parseTestsFromResponse)(content);
     }
     async healTest(request, config) {

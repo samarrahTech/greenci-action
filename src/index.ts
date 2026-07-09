@@ -10,6 +10,7 @@ import { postReport } from './pr-reporter';
 import { runMigration, buildMigrationReportBody } from './migrator';
 import { uploadTraces } from './trace-uploader';
 import { uploadResults } from './results-uploader';
+import { runBootstrap } from './bootstrap-runner';
 
 async function run(): Promise<void> {
   try {
@@ -18,6 +19,26 @@ async function run(): Promise<void> {
 
     if (!token) {
       core.warning('No GitHub token provided. Commit and PR comment features will be disabled.');
+    }
+
+    // Bootstrap mode — build a foundational suite; runs from workflow_dispatch
+    if (config.mode === 'bootstrap') {
+      core.info('🌱 Running in bootstrap mode (foundational suite from journeys)');
+      const llmClient = createLLMClient(config);
+      const workDir = process.env.GITHUB_WORKSPACE || process.cwd();
+      const github = await import('@actions/github');
+      const outcome = await runBootstrap(config, llmClient, workDir, token, github.context.repo);
+
+      core.setOutput('tests-generated', String(outcome.testsGenerated));
+      core.setOutput('tests-passed', String(outcome.testsPassed));
+      core.setOutput('tests-failed', String(outcome.testsFailed));
+      if (outcome.prUrl) core.setOutput('report-url', outcome.prUrl);
+
+      core.info(
+        `🌱 Bootstrap complete: ${outcome.testsPassed}/${outcome.testsGenerated} tests passing` +
+          (outcome.prUrl ? ` — PR: ${outcome.prUrl}` : ''),
+      );
+      return;
     }
 
     // Migration mode

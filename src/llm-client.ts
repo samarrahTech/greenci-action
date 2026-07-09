@@ -133,6 +133,49 @@ class GreenCIClient implements ILLMClient {
     }
   }
 
+  async bootstrapTests(
+    journeys: string[],
+    pages: { url: string; html: string }[],
+    config: ActionConfig,
+    existingTests?: string[],
+  ): Promise<GeneratedTest[]> {
+    core.info(`Calling GreenCI API at ${config.greenCIApiUrl}/v1/bootstrap (${journeys.length} journeys, ${pages.length} pages)`);
+
+    try {
+      const response = await fetch(`${config.greenCIApiUrl}/v1/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          context: { journeys, pages, existingTests },
+          config: {
+            baseUrl: config.baseUrl,
+            testDir: config.testDir,
+            model: config.llmModel || undefined,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await readErrorBody(response);
+        throw new Error(
+          `GreenCI bootstrap failed (HTTP ${response.status})${body ? `: ${body}` : ''}. ` +
+            `Check that your greenci-api-key is valid and your plan has remaining quota. No tests were generated.`,
+        );
+      }
+
+      const data = (await response.json()) as { tests: GeneratedTest[] };
+      return data.tests;
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('GreenCI bootstrap failed')) {
+        throw error;
+      }
+      throw new Error(`GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`);
+    }
+  }
+
   async healTest(request: SelfHealRequest, config: ActionConfig): Promise<GeneratedTest> {
     core.info(`Calling GreenCI API for self-healing (attempt ${request.attempt})`);
 

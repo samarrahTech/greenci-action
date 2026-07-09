@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SelfHealRequest } from '../types';
 import {
   TEST_GENERATION_SYSTEM,
+  BOOTSTRAP_SYSTEM,
+  buildBootstrapPrompt,
   SELF_HEALING_SYSTEM,
   MIGRATION_SYSTEM,
   buildGeneratePrompt,
@@ -57,6 +59,22 @@ export class AnthropicClient implements ILLMClient {
     const model = config.llmModel || DEFAULT_MODEL;
     core.info(`Generating tests via Anthropic API (${model}) — code stays between your runner and Anthropic`);
     const content = await this.complete(TEST_GENERATION_SYSTEM, buildGeneratePrompt(context, config.baseUrl), model);
+    return parseTestsFromResponse(content);
+  }
+
+  async bootstrapTests(
+    journeys: string[],
+    pages: { url: string; html: string }[],
+    config: ActionConfig,
+    existingTests?: string[],
+  ): Promise<GeneratedTest[]> {
+    const model = config.llmModel || DEFAULT_MODEL;
+    core.info(`Bootstrapping suite via Anthropic API (${model}) — ${journeys.length} journeys, ${pages.length} pages`);
+    const content = await this.complete(
+      BOOTSTRAP_SYSTEM,
+      buildBootstrapPrompt(journeys, pages, config.baseUrl, existingTests),
+      model,
+    );
     return parseTestsFromResponse(content);
   }
 

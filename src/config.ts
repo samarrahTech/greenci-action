@@ -10,8 +10,16 @@ export function getConfig(): ActionConfig {
   }
 
   const mode = (core.getInput('mode') || 'generate') as OperationMode;
-  if (mode !== 'generate' && mode !== 'generate-only' && mode !== 'migrate') {
-    throw new Error(`Invalid mode: ${mode}. Must be 'generate', 'generate-only', or 'migrate'.`);
+  if (mode !== 'generate' && mode !== 'generate-only' && mode !== 'migrate' && mode !== 'bootstrap') {
+    throw new Error(`Invalid mode: ${mode}. Must be 'generate', 'generate-only', 'migrate', or 'bootstrap'.`);
+  }
+
+  const journeys = core.getInput('journeys') || '';
+  if (mode === 'bootstrap' && !journeys.trim()) {
+    throw new Error(
+      "mode 'bootstrap' requires the `journeys` input — one critical user journey per line, e.g.\n" +
+        'journeys: |\n  Sign in with email and password\n  Post a new job listing and reach the payment step',
+    );
   }
 
   // BYO-LLM providers authenticate with their own env keys; the GreenCI API
@@ -32,5 +40,6 @@ export function getConfig(): ActionConfig {
     greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
     mode,
     cypressDir: core.getInput('cypress-dir') || 'cypress/e2e',
+    journeys,
   };
 }

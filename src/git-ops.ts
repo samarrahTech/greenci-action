@@ -90,3 +90,92 @@ export async function commitTests(
   core.info(`Committed ${committedFiles.length} test file(s) to ${prContext.branch}`);
   return committedFiles;
 }
+
+/**
+ * Bootstrap mode runs from workflow_dispatch with no PR context: commit the
+ * generated suite to a new branch off the default branch and open a PR.
+ * Returns the PR URL and the list of committed files.
+ */
+export async function createBootstrapPR(
+  token: string,
+  owner: string,
+  repo: string,
+  testFiles: string[],
+  workDir: string,
+  prBody: string,
+): Promise<{ prUrl: string; committedFiles: string[] }> {
+  const octokit = github.getOctokit(token);
+
+  const { data: repoInfo } = await octokit.rest.repos.get({ owner, repo });
+  const defaultBranch = repoInfo.default_branch;
+
+  const { data: baseRef } = await octokit.rest.git.getRef({
+    owner,
+    repo,
+    ref: `heads/${defaultBranch}`,
+  });
+  const { data: baseCommit } = await octokit.rest.git.getCommit({
+    owner,
+    repo,
+    commit_sha: baseRef.object.sha,
+  });
+
+  const branchName = `greenci/bootstrap-${process.env.GITHUB_RUN_ID || Date.now()}`;
+  await octokit.rest.git.createRef({
+    owner,
+    repo,
+    ref: `refs/heads/${branchName}`,
+    sha: baseRef.object.sha,
+  });
+
+  const treeItems: { path: string; mode: '100644'; type: 'blob'; sha: string }[] = [];
+  const committedFiles: string[] = [];
+
+  for (const filePath of testFiles) {
+    if (!fs.existsSync(filePath)) {
+      core.warning(`Test file not found, skipping: ${filePath}`);
+      continue;
+    }
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const relativePath = path.relative(workDir, filePath);
+    const { data: blob } = await octokit.rest.git.createBlob({ owner, repo, content, encoding: 'utf-8' });
+    treeItems.push({ path: relativePath, mode: '100644', type: 'blob', sha: blob.sha });
+    committedFiles.push(relativePath);
+  }
+
+  if (treeItems.length === 0) {
+    throw new Error('Bootstrap produced no committable test files');
+  }
+
+  const { data: tree } = await octokit.rest.git.createTree({
+    owner,
+    repo,
+    base_tree: baseCommit.tree.sha,
+    tree: treeItems,
+  });
+  const { data: newCommit } = await octokit.rest.git.createCommit({
+    owner,
+    repo,
+    message: '🤖 GreenCI: Bootstrap foundational E2E test suite',
+    tree: tree.sha,
+    parents: [baseRef.object.sha],
+  });
+  await octokit.rest.git.updateRef({
+    owner,
+    repo,
+    ref: `heads/${branchName}`,
+    sha: newCommit.sha,
+  });
+
+  const { data: pr } = await octokit.rest.pulls.create({
+    owner,
+    repo,
+    title: '🌱 GreenCI: Foundational E2E test suite',
+    head: branchName,
+    base: defaultBranch,
+    body: prBody,
+  });
+
+  core.info(`Opened bootstrap PR #${pr.number}: ${pr.html_url}`);
+  return { prUrl: pr.html_url, committedFiles };
+}

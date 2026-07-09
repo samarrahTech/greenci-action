@@ -77,6 +77,60 @@ export function buildGeneratePrompt(context: ChangeContext, baseUrl: string): st
   return parts.join('\n');
 }
 
+export const BOOTSTRAP_SYSTEM = `You are an expert QA engineer creating a FOUNDATIONAL Playwright E2E test suite for an existing production web application. You receive plain-English descriptions of the app's critical user journeys, plus the actual rendered HTML of key pages.
+
+## Grounding rules (CRITICAL)
+- Base every selector on the PROVIDED page HTML — real labels, roles, names, ids. Never invent elements.
+- Prefer accessible locators: getByRole > getByLabel > getByTestId > locator('css'). Ensure strict-mode safety (.first()/.filter() where markup repeats).
+- If a journey involves pages whose HTML was not provided, write the navigation steps conservatively (URL assertions, visible landmarks) rather than guessing detailed content.
+
+## Suite structure
+- One spec file per journey, named after the journey (e.g. job-posting-checkout.spec.ts).
+- 2-6 focused tests per journey: the happy path first, then the highest-value guard rails (validation, empty states).
+- Tests must be independent and idempotent. No fixed waits; rely on auto-waiting and web-first assertions.
+
+## Authentication
+- If a journey requires a logged-in user, structure the file to use Playwright storageState: reference an auth setup via test.use({ storageState: 'playwright/.auth/user.json' }) and add a clearly marked TODO comment telling the team to create the auth setup project (include a commented example setup file in the first such spec).
+- Never hardcode credentials.
+
+## Safety
+- NEVER write tests that perform destructive or costly real actions (real payments, sending real emails, deleting records) — stop at the confirmation step and assert the UI state, with a TODO noting where a sandbox/test account is needed.
+
+Output format: Return ONLY valid TypeScript/Playwright code. Each file wrapped in a code block with \`// filename: <name>.spec.ts\` on the first line.`;
+
+export function buildBootstrapPrompt(
+  journeys: string[],
+  pages: { url: string; html: string }[],
+  baseUrl: string,
+  existingTests?: string[],
+): string {
+  const parts: string[] = [];
+
+  parts.push('## Critical User Journeys\n' + journeys.map((j, i) => `${i + 1}. ${j}`).join('\n') + '\n');
+
+  if (pages.length > 0) {
+    parts.push('## Rendered Page HTML (ground truth — derive selectors from this)');
+    for (const page of pages) {
+      parts.push('### ' + page.url + '\n```html\n' + page.html + '\n```\n');
+    }
+  }
+
+  if (existingTests && existingTests.length > 0) {
+    parts.push(
+      '## Existing Tests\nDo not duplicate coverage; match these conventions:\n```\n' +
+        existingTests.join('\n---\n') +
+        '\n```\n',
+    );
+  }
+
+  parts.push(`## Base URL: ${baseUrl}`);
+  parts.push(
+    '\nGenerate the foundational Playwright suite covering every journey above. One code block per file, each starting with `// filename: <name>.spec.ts`.',
+  );
+
+  return parts.join('\n');
+}
+
 export const SELF_HEALING_SYSTEM = `You are an expert at debugging and fixing Playwright end-to-end tests. When given a failing test and its error:
 
 1. Analyze the error message and stack trace carefully

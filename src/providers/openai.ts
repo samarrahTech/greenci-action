@@ -2,6 +2,8 @@ import * as core from '@actions/core';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SelfHealRequest } from '../types';
 import {
   TEST_GENERATION_SYSTEM,
+  BOOTSTRAP_SYSTEM,
+  buildBootstrapPrompt,
   SELF_HEALING_SYSTEM,
   MIGRATION_SYSTEM,
   buildGeneratePrompt,
@@ -70,6 +72,22 @@ export class OpenAIClient implements ILLMClient {
     const model = config.llmModel || DEFAULT_MODEL;
     core.info(`Generating tests via OpenAI API (${model}) — code stays between your runner and OpenAI`);
     const content = await this.complete(TEST_GENERATION_SYSTEM, buildGeneratePrompt(context, config.baseUrl), model);
+    return parseTestsFromResponse(content);
+  }
+
+  async bootstrapTests(
+    journeys: string[],
+    pages: { url: string; html: string }[],
+    config: ActionConfig,
+    existingTests?: string[],
+  ): Promise<GeneratedTest[]> {
+    const model = config.llmModel || DEFAULT_MODEL;
+    core.info(`Bootstrapping suite via OpenAI API (${model}) — ${journeys.length} journeys, ${pages.length} pages`);
+    const content = await this.complete(
+      BOOTSTRAP_SYSTEM,
+      buildBootstrapPrompt(journeys, pages, config.baseUrl, existingTests),
+      model,
+    );
     return parseTestsFromResponse(content);
   }
 

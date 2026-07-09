@@ -30,6 +30,7 @@ describe('generateAndRunTests', () => {
     baseUrl: 'http://localhost:3000',
     mode: 'generate',
     cypressDir: 'cypress/e2e',
+  journeys: '',
     maxRetries: 2,
     autoCommit: true,
     greenCIApiUrl: 'https://api.greenci.ai',

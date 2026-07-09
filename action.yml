@@ -10,9 +10,13 @@ inputs:
     description: 'GreenCI API key (required for the hosted greenci provider; optional for BYO-LLM providers)'
     required: false
   mode:
-    description: 'Operation mode (generate or migrate)'
+    description: 'Operation mode: generate (PR diffs), bootstrap (foundational suite from journeys), or migrate (Cypress → Playwright)'
     required: false
     default: 'generate'
+  journeys:
+    description: 'Bootstrap mode: critical user journeys in plain English, one per line. Mention URL paths (e.g. /login) to have their rendered HTML captured for selector grounding.'
+    required: false
+    default: ''
   cypress-dir:
     description: 'Cypress tests directory (for migrate mode)'
     required: false

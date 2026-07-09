@@ -30,6 +30,7 @@ const mockConfig: ActionConfig = {
   greenCIApiUrl: 'https://api.greenci.ai',
   mode: 'migrate',
   cypressDir: 'cypress/e2e',
+  journeys: '',
 };
 
 const mockLLMClient: ILLMClient = {
