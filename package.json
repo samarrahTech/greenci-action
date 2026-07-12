@@ -1,6 +1,6 @@
 {
   "name": "greenci-action",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "AI-powered E2E test generation and self-healing for CI/CD",
   "main": "dist/index.js",
   "scripts": {
