@@ -60,7 +60,8 @@ jobs:
 | `max-retries` | Max self-healing retries | ❌ | `2` |
 | `auto-commit` | Auto-commit passing tests to PR | ❌ | `true` |
 | `greenci-api-url` | GreenCI API endpoint | ❌ | `https://api.greenci.ai` |
-| `mode` | Operation mode (`generate` or `migrate`) | ❌ | `generate` |
+| `mode` | Operation mode (`generate`, `bootstrap`, or `migrate`) | ❌ | `generate` |
+| `journeys` | Bootstrap mode: critical user journeys in plain English, one per line (mention URL paths like `/login` to ground selectors in that page's real HTML) | ❌ | `''` |
 | `project-id` | GreenCI project ID — enables trace uploads to the dashboard (copy it from your project page at app.greenci.ai) | ❌ | `''` |
 | `github-token` | Token for PR comments and auto-commit | ❌ | `${{ github.token }}` |
 | `cypress-dir` | Cypress tests directory (for migrate mode) | ❌ | `cypress/e2e` |
