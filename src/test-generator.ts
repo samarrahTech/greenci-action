@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, TestResult, RunReport } from './types';
-import { runTests, writeTests } from './test-runner';
+import { ensurePlaywright, ensurePlaywrightConfig, runTests, writeTests } from './test-runner';
 import { healFailedTests } from './self-healer';
 import { readExistingTests, formatExistingTestsForAPI } from './existing-tests';
 
@@ -59,7 +59,9 @@ export async function generateAndRunTests(
     };
   }
 
-  // 3. Run tests
+  // 3. Run tests (installing Playwright + a minimal config if the repo lacks them)
+  await ensurePlaywright(workDir);
+  ensurePlaywrightConfig(workDir, config.baseUrl, config.testDir);
   core.info('🏃 Running tests...');
   const initialResults = await runTests(generatedTests, config, workDir);
 

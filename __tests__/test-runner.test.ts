@@ -118,3 +118,57 @@ describe('cleanupTests', () => {
     expect(mockUnlinkSync).not.toHaveBeenCalled();
   });
 });
+
+describe('ensurePlaywrightConfig', () => {
+  const { ensurePlaywrightConfig } = jest.requireActual('../src/test-runner');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('writes a minimal config when none exists', () => {
+    mockExistsSync.mockReturnValue(false);
+    const created = ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e');
+    expect(created).toBe(true);
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('playwright.config.ts'),
+      expect.stringContaining("baseURL: 'http://localhost:4000'"),
+      'utf-8'
+    );
+  });
+
+  it('does nothing when a config already exists', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('playwright.config.js'));
+    const created = ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e');
+    expect(created).toBe(false);
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+  });
+});
+
+describe('ensurePlaywright', () => {
+  const { ensurePlaywright } = jest.requireActual('../src/test-runner');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('installs @playwright/test when missing, then installs chromium', async () => {
+    mockExistsSync.mockReturnValue(false);
+    const installed = await ensurePlaywright('/work');
+    expect(installed).toBe(true);
+    expect(exec.exec).toHaveBeenCalledWith(
+      'npm',
+      expect.arrayContaining(['install', '--no-save', '@playwright/test']),
+      expect.objectContaining({ cwd: '/work' })
+    );
+    expect(exec.exec).toHaveBeenCalledWith(
+      'npx',
+      ['playwright', 'install', '--with-deps', 'chromium'],
+      expect.objectContaining({ cwd: '/work' })
+    );
+  });
+
+  it('skips the package install when @playwright/test is present', async () => {
+    mockExistsSync.mockReturnValue(true);
+    const installed = await ensurePlaywright('/work');
+    expect(installed).toBe(false);
+    const npmCalls = (exec.exec as jest.Mock).mock.calls.filter((c) => c[0] === 'npm');
+    expect(npmCalls).toHaveLength(0);
+  });
+});

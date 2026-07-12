@@ -4,6 +4,8 @@ import { ChangeContext, GeneratedTest, ILLMClient, ActionConfig } from '../src/t
 jest.mock('../src/test-runner', () => ({
   writeTests: jest.fn().mockResolvedValue(['/tmp/test.spec.ts']),
   runTests: jest.fn().mockResolvedValue([{ filename: 'e2e/test.spec.ts', passed: true, duration: 100 }]),
+  ensurePlaywright: jest.fn().mockResolvedValue(false),
+  ensurePlaywrightConfig: jest.fn().mockReturnValue(false),
 }));
 
 jest.mock('../src/self-healer', () => ({
