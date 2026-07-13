@@ -31776,14 +31776,27 @@ async function createBootstrapPR(token, owner, repo, testFiles, workDir, prBody)
         ref: `heads/${branchName}`,
         sha: newCommit.sha,
     });
-    const { data: pr } = await octokit.rest.pulls.create({
-        owner,
-        repo,
-        title: '🌱 GreenCI: Foundational E2E test suite',
-        head: branchName,
-        base: defaultBranch,
-        body: prBody,
-    });
+    let pr;
+    try {
+        const res = await octokit.rest.pulls.create({
+            owner,
+            repo,
+            title: '🌱 GreenCI: Foundational E2E test suite',
+            head: branchName,
+            base: defaultBranch,
+            body: prBody,
+        });
+        pr = res.data;
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes('not permitted to create')) {
+            throw new Error(`Your test suite was committed to branch '${branchName}', but GitHub blocked the PR creation. ` +
+                `Enable it under Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests", ` +
+                `then re-run — or open a PR from that branch manually. Nothing was lost.`);
+        }
+        throw err;
+    }
     core.info(`Opened bootstrap PR #${pr.number}: ${pr.html_url}`);
     return { prUrl: pr.html_url, committedFiles };
 }

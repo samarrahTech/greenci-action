@@ -110,6 +110,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+> **One-time repo setting:** for the action to open the PR, enable **Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests"** (off by default on GitHub). If you forget, the suite is still committed to a `greenci/bootstrap-*` branch and the error tells you what to do.
+
 Mention URL paths in a journey (like `/login`) and GreenCI fetches that page's rendered HTML so selectors are grounded in your real DOM. After the bootstrap PR merges, the default `generate` mode keeps the suite growing with every PR.
 
 ### Bring Your Own LLM (Anthropic or OpenAI)
