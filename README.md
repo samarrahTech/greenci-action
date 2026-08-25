@@ -79,7 +79,7 @@ jobs:
 
 ### Bootstrap: generate a foundational suite for an app with no tests
 
-You don't need to wait for PRs — describe your critical journeys in plain English and run once (e.g. via `workflow_dispatch`). GreenCI captures the rendered HTML of your key pages for real selectors, generates a spec per journey, runs and heals the suite against your app, and **opens a PR** with the verified-passing tests. Journeys behind login get `storageState` scaffolding with TODOs.
+You don't need to wait for PRs — describe your critical journeys in plain English and run once (e.g. via `workflow_dispatch`). GreenCI captures the rendered HTML of your key pages for real selectors, generates a spec per journey, runs and heals the suite against your app, and **opens a PR** with the verified-passing tests. Journeys behind a login get a ready-made sign-in setup — see below.
 
 ```yaml
 name: GreenCI Bootstrap
