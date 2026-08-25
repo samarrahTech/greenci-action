@@ -30736,6 +30736,10 @@ const EMAIL = process.env.TEST_USER_EMAIL;
 const PASSWORD = process.env.TEST_USER_PASSWORD;
 
 setup('authenticate', async ({ page }) => {
+  // Cold dev servers compile the post-login page on demand — give the whole
+  // sign-in generous room (CI runners are slow; default 30s test timeout is
+  // far too tight for a first-compile navigation).
+  setup.setTimeout(120_000);
   setup.skip(!EMAIL || !PASSWORD, 'TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will be skipped');
 
   await page.goto('${loginPath}');
@@ -30760,7 +30764,7 @@ setup('authenticate', async ({ page }) => {
     .click();
 
   // Consider login successful once we are no longer on the login page.
-  await page.waitForURL((url) => !/login|sign-?in/i.test(url.pathname), { timeout: 15_000 });
+  await page.waitForURL((url) => !/login|sign-?in/i.test(url.pathname), { timeout: 60_000 });
 
   await page.context().storageState({ path: '${exports.STORAGE_STATE_PATH}' });
 });
