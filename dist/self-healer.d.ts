@@ -3,6 +3,12 @@ export interface HealingOutcome {
     healed: GeneratedTest[];
     results: TestResult[];
     suspectedBugs: SuspectedBug[];
+    /** Failures caused by missing auth setup/credentials — deterministically
+     *  classified, never sent to the LLM healer. */
+    authBlocked: {
+        filename: string;
+        error?: string;
+    }[];
 }
 export declare function healFailedTests(failedTests: {
     test: GeneratedTest;

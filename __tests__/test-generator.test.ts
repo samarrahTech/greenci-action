@@ -9,7 +9,7 @@ jest.mock('../src/test-runner', () => ({
 }));
 
 jest.mock('../src/self-healer', () => ({
-  healFailedTests: jest.fn().mockResolvedValue({ healed: [], results: [] }),
+  healFailedTests: jest.fn().mockResolvedValue({ healed: [], results: [], suspectedBugs: [], authBlocked: [] }),
 }));
 
 import { generateAndRunTests } from '../src/test-generator';

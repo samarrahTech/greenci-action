@@ -114,6 +114,10 @@ jobs:
 
 Mention URL paths in a journey (like `/login`) and GreenCI fetches that page's rendered HTML so selectors are grounded in your real DOM. After the bootstrap PR merges, the default `generate` mode keeps the suite growing with every PR.
 
+#### Journeys behind a login
+
+When journeys need a signed-in user, the bootstrap PR includes a ready-made `auth.setup.ts` (plus Playwright config wiring) that signs in before the suite and saves the session. To activate those tests: create a **dedicated test user** in your app, add `TEST_USER_EMAIL` and `TEST_USER_PASSWORD` as repository secrets, expose them as `env:` on the GreenCI step, and re-run the workflow. Credentials stay in your repo and your CI runner — they never touch GreenCI. (OAuth-only/SSO logins can't be automated this way — ask us about the test-login hook pattern.)
+
 ### Bring Your Own LLM (Anthropic or OpenAI)
 
 With a BYO-LLM provider, the action calls your LLM provider directly from the runner — your diff and tests are never sent to the GreenCI API. You pay your provider directly; no GreenCI API key or quota is needed.

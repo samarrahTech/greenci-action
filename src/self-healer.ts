@@ -1,11 +1,15 @@
 import * as core from '@actions/core';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
 import { runTests, writeTests } from './test-runner';
+import { isAuthSetupFailure } from './auth-scaffold';
 
 export interface HealingOutcome {
   healed: GeneratedTest[];
   results: TestResult[];
   suspectedBugs: SuspectedBug[];
+  /** Failures caused by missing auth setup/credentials — deterministically
+   *  classified, never sent to the LLM healer. */
+  authBlocked: { filename: string; error?: string }[];
 }
 
 export async function healFailedTests(
@@ -18,8 +22,18 @@ export async function healFailedTests(
   const healed: GeneratedTest[] = [];
   const results: TestResult[] = [];
   const suspectedBugs: SuspectedBug[] = [];
+  const authBlocked: { filename: string; error?: string }[] = [];
 
   for (const { test, result } of failedTests) {
+    // Auth walls are not selector bugs: a heal cannot conjure a session, so
+    // don't spend LLM calls on them — route to the credentials instructions.
+    if (isAuthSetupFailure(result.error)) {
+      core.warning(`🔐 ${test.filename} needs login credentials — skipping heal (see PR instructions)`);
+      authBlocked.push({ filename: test.filename, error: result.error });
+      results.push(result);
+      continue;
+    }
+
     let currentTest = test;
     let currentResult = result;
     let wasHealed = false;
@@ -81,5 +95,5 @@ export async function healFailedTests(
     }
   }
 
-  return { healed, results, suspectedBugs };
+  return { healed, results, suspectedBugs, authBlocked };
 }

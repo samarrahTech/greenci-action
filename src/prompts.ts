@@ -90,7 +90,7 @@ export const BOOTSTRAP_SYSTEM = `You are an expert QA engineer creating a FOUNDA
 - Tests must be independent and idempotent. No fixed waits; rely on auto-waiting and web-first assertions.
 
 ## Authentication
-- If a journey requires a logged-in user, structure the file to use Playwright storageState: reference an auth setup via test.use({ storageState: 'playwright/.auth/user.json' }) and add a clearly marked TODO comment telling the team to create the auth setup project (include a commented example setup file in the first such spec).
+- If a journey requires a logged-in user, add test.use({ storageState: 'playwright/.auth/user.json' }) at the top of that spec file. Do NOT write TODO comments about creating the auth setup and do NOT include example setup code — the pipeline provides a ready-made auth.setup.ts and config wiring automatically.
 - Never hardcode credentials.
 
 ## Safety
