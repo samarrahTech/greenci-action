@@ -79,7 +79,7 @@ export async function runBootstrap(
   let healed: GeneratedTest[] = [];
   let healedResults: TestResult[] = [];
   let suspectedBugs: SuspectedBug[] = [];
-  let authBlocked: { filename: string; error?: string }[] = [];
+  let authBlocked: { filename: string; error?: string; kind: 'missing-session' | 'setup-failed' }[] = [];
   if (failedTests.length > 0 && config.maxRetries > 0) {
     core.info(`🔧 Healing ${failedTests.length} failing bootstrap test(s)...`);
     const healing = await healFailedTests(failedTests, emptyChangeContext(), config, llmClient, workDir);
@@ -142,7 +142,7 @@ function buildBootstrapPRBody(
     createdConfig: boolean;
     baseUrl: string;
     testDir: string;
-    authBlocked: { filename: string; error?: string }[];
+    authBlocked: { filename: string; error?: string; kind: 'missing-session' | 'setup-failed' }[];
     withAuth: boolean;
   },
 ): string {
@@ -169,9 +169,22 @@ function buildBootstrapPRBody(
   const authNames = new Set(setup.authBlocked.map((a) => a.filename));
   const otherFailed = failed.filter((f) => !authNames.has(f.filename));
 
-  if (setup.authBlocked.length > 0) {
-    body += '### 🔐 ' + setup.authBlocked.length + ' journey(s) need login credentials\n';
-    body += setup.authBlocked.map((a) => `- \`${a.filename}\``).join('\n') + '\n\n';
+  const signInFailed = setup.authBlocked.filter((a) => a.kind === 'setup-failed');
+  const needsCreds = setup.authBlocked.filter((a) => a.kind === 'missing-session');
+
+  if (signInFailed.length > 0) {
+    body += '### 🔐 ' + signInFailed.length + ' journey(s) blocked: sign-in did not complete\n';
+    body += signInFailed.map((a) => `- \`${a.filename}\``).join('\n') + '\n\n';
+    body += 'The login setup (`' + setup.testDir + '/auth.setup.ts`) ran but never got past the login page, so these journeys could not run. Likely causes, in order:\n\n';
+    body += '- The test credentials are wrong, or the account is locked/unverified\n';
+    body += '- Your login endpoint is **rate-limiting** the run (CI signs in repeatedly from one IP)\n';
+    body += '- Sign-in is genuinely broken — worth checking by hand\n\n';
+    body += 'The exact error is in the workflow log under the `[setup]` project. These tests were **not** rewritten to pass around the problem.\n\n';
+  }
+
+  if (needsCreds.length > 0) {
+    body += '### 🔐 ' + needsCreds.length + ' journey(s) need login credentials\n';
+    body += needsCreds.map((a) => `- \`${a.filename}\``).join('\n') + '\n\n';
     body += 'A ready-made login setup (`' + setup.testDir + '/auth.setup.ts`) is included in this PR. To activate these tests:\n\n';
     body += '1. Create a **dedicated test user** in your app (never a real account)\n';
     body += '2. Add two repository secrets (Settings → Secrets and variables → Actions): `TEST_USER_EMAIL` and `TEST_USER_PASSWORD`\n';

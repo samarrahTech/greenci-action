@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import {
+  classifyAuthFailure,
   needsAuthScaffold,
   loginPathFromJourneys,
   authSetupSource,
@@ -57,5 +58,73 @@ describe('isAuthSetupFailure', () => {
   it('does not classify ordinary failures', () => {
     expect(isAuthSetupFailure('strict mode violation: getByText resolved to 2 elements')).toBe(false);
     expect(isAuthSetupFailure(undefined)).toBe(false);
+  });
+});
+
+describe('isAuthSetupFailure — setup-execution failures', () => {
+  it('classifies a failing setup project (the broken-login case)', () => {
+    const err = [
+      '  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate ────────────────',
+      '    TimeoutError: page.waitForURL: Timeout 60000ms exceeded.',
+      '      3 did not run',
+    ].join('\n');
+    expect(isAuthSetupFailure(err)).toBe(true);
+  });
+
+  it('classifies dependent specs skipped because setup failed', () => {
+    expect(isAuthSetupFailure('e2e/auth.setup.ts failed\n\n  3 did not run')).toBe(true);
+  });
+
+  it('still ignores ordinary spec failures that merely mention timeouts', () => {
+    expect(isAuthSetupFailure('TimeoutError: locator.click: Timeout 5000ms exceeded')).toBe(false);
+    expect(isAuthSetupFailure('expected 2 elements, strict mode violation')).toBe(false);
+  });
+});
+
+describe('isAuthSetupFailure — must NOT fire on ordinary failures (review findings)', () => {
+  it('ignores a spec failure whose trace merely mentions auth.setup.ts', () => {
+    expect(isAuthSetupFailure('Error: expected visible\n    at e2e/cart.spec.ts:9\n  (session from auth.setup.ts)')).toBe(false);
+  });
+
+  it('ignores a passing setup that logs to stdout (no failure marker)', () => {
+    expect(isAuthSetupFailure('  [setup] › e2e/auth.setup.ts:16:6 › authenticate\nsigned in as test user')).toBe(false);
+  });
+
+  it('ignores a spec named like the scaffold running in the normal project', () => {
+    expect(isAuthSetupFailure('  1) [chromium] › e2e/auth.setup.ts:3:1 › smoke\n    Error: boom')).toBe(false);
+  });
+
+  it('ignores "did not run" without any auth.setup.ts involvement', () => {
+    expect(isAuthSetupFailure('  1) [chromium] › e2e/cart.spec.ts:2:1 › x\n  2 did not run')).toBe(false);
+  });
+});
+
+describe('classifyAuthFailure families', () => {
+  it('separates missing-session from setup-failed', () => {
+    expect(classifyAuthFailure("ENOENT: no such file or directory, open 'playwright/.auth/user.json'")).toBe('missing-session');
+    expect(classifyAuthFailure('  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n TimeoutError\n 3 did not run')).toBe('setup-failed');
+    expect(classifyAuthFailure('strict mode violation')).toBeNull();
+  });
+});
+
+describe('authSetupSource — session reuse', () => {
+  it('skips signing in again when a recent session file exists', () => {
+    const src = authSetupSource('/login');
+    expect(src).toContain("hasUsableSession('playwright/.auth/user.json')");
+    expect(src).toContain('SESSION_MAX_AGE_MS');
+    expect(src).toContain('statSync');
+  });
+
+  it('only reuses a session that actually carries credentials', () => {
+    const src = authSetupSource('/login');
+    // A fresh-but-empty file must not short-circuit auth for the whole run
+    expect(src).toMatch(/cookies > 0 \|\| stored > 0/);
+    expect(src).toContain('catch');
+  });
+
+  it('checks the credentials guard AFTER the skip, so unset creds still classify as missing-session', () => {
+    const src = authSetupSource('/login');
+    expect(src.indexOf('setup.skip(!EMAIL')).toBeGreaterThan(-1);
+    expect(src.indexOf('if (hasUsableSession(')).toBeGreaterThan(src.indexOf('setup.skip(!EMAIL'));
   });
 });
