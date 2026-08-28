@@ -89,6 +89,9 @@ describe('index (run)', () => {
   async function executeRun() {
     // Clear module cache to re-run
     jest.isolateModules(() => {
+      // isolateModules needs a synchronous re-require to re-execute the module.
+      // An import would be hoisted and async, so it cannot do this.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       require('../src/index');
     });
     // Wait for async run() to complete
