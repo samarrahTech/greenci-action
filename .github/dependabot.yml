@@ -1,0 +1,22 @@
+# This repo commits its ncc-bundled dist/ and verifies it in CI. Dependabot
+# never runs the build, so a bump to a *bundled runtime* dependency would land
+# with a stale dist/ and red-fail every PR. Restrict npm updates to
+# devDependencies, which are not bundled; runtime deps (@actions/core,
+# @anthropic-ai/sdk) are bumped by hand together with `npm run build`.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-type: development
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
