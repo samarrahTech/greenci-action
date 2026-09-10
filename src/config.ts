@@ -27,8 +27,14 @@ export function getConfig(): ActionConfig {
   // trace uploads if provided).
   const apiKeyRequired = provider === 'greenci';
 
+  // Register the key with the runner's masker. Workflows that pass it as a
+  // literal (or from a var rather than a secret) are otherwise one core.info
+  // or one stack trace away from printing it into a public log.
+  const apiKey = core.getInput('api-key', { required: apiKeyRequired });
+  if (apiKey) core.setSecret(apiKey);
+
   return {
-    apiKey: core.getInput('api-key', { required: apiKeyRequired }),
+    apiKey,
     llmProvider: provider as LLMProvider,
     llmModel: core.getInput('llm-model') || '',
     awsRegion: core.getInput('aws-region') || 'us-east-1',

@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import { resolveTestPath } from './safe-paths';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, TestResult, RunReport } from './types';
 import { ensurePlaywright, ensurePlaywrightConfig, runTests, writeTests } from './test-runner';
 import { healFailedTests } from './self-healer';
@@ -37,20 +38,43 @@ export async function generateAndRunTests(
     };
   }
 
-  // 2. Write tests to disk
-  await writeTests(generatedTests, workDir, config.testDir);
+  // 2. Write tests to disk. writeTests drops any test whose filename failed
+  // validation, so report from what actually landed — not from what the model
+  // proposed — or the PR comment claims tests that do not exist on disk.
+  const writtenFiles = await writeTests(generatedTests, workDir, config.testDir);
+  // Exact absolute-path membership, not basename: writeTests normalises
+  // test.filename in place to the path it validated, so this is the same value
+  // it pushed. Basename matching would conflate auth/login.spec.ts with
+  // admin/login.spec.ts.
+  const writtenSet = new Set(writtenFiles);
+  const writtenTests = generatedTests.filter((t) => {
+    // Resolve the same way writeTests did rather than relying on its in-place
+    // normalisation of test.filename — resolveTestPath is idempotent, so this
+    // matches whether or not the name has already been rewritten.
+    try {
+      return writtenSet.has(resolveTestPath(workDir, config.testDir, t.filename).absolute);
+    } catch {
+      return false;
+    }
+  });
+
+  if (writtenTests.length !== generatedTests.length) {
+    core.warning(
+      `${generatedTests.length - writtenTests.length} generated test(s) were rejected and not written.`,
+    );
+  }
 
   // 2b. If generate-only mode, skip running tests entirely
   if (config.mode === 'generate-only') {
     core.info('📝 Generate-only mode: skipping test execution');
     return {
-      testsGenerated: generatedTests.length,
+      testsGenerated: writtenTests.length,
       testsPassed: 0,
       testsFailed: 0,
       testsHealed: 0,
       filesChanged: context.modifiedFiles.map((f) => f.filename),
       duration: Date.now() - startTime,
-      tests: generatedTests.map((t) => ({
+      tests: writtenTests.map((t) => ({
         filename: t.filename,
         passed: true, // Treat as passed for commit purposes
         duration: 0,
@@ -63,11 +87,14 @@ export async function generateAndRunTests(
   await ensurePlaywright(workDir);
   ensurePlaywrightConfig(workDir, config.baseUrl, config.testDir);
   core.info('🏃 Running tests...');
-  const initialResults = await runTests(generatedTests, config, workDir);
+  const initialResults = await runTests(writtenTests, config, workDir);
 
   // 4. Self-heal failed tests
   const failedTests = initialResults
-    .map((result, i) => ({ test: generatedTests[i], result }))
+    // Pair against writtenTests: runTests was given that array, so index i
+    // refers to it. Pairing with generatedTests here would mis-associate every
+    // test after a rejected one.
+    .map((result, i) => ({ test: writtenTests[i], result }))
     .filter(({ result }) => !result.passed);
 
   let healedTests: GeneratedTest[] = [];
@@ -93,7 +120,7 @@ export async function generateAndRunTests(
   const totalFailed = allResults.filter((r) => !r.passed).length;
 
   return {
-    testsGenerated: generatedTests.length,
+    testsGenerated: writtenTests.length,
     testsPassed: totalPassed,
     testsFailed: totalFailed,
     testsHealed: healedTests.length,

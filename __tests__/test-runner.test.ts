@@ -65,6 +65,39 @@ describe('writeTests', () => {
     const result = await writeTests(tests, '/work', 'e2e');
     expect(result).toHaveLength(2);
   });
+
+  // Regression: a PR author prompt-injects a traversal filename through the
+  // diff and the action writes (then commits) outside the test directory.
+  describe('untrusted filenames', () => {
+    it.each([
+      ['../../package.json'],
+      ['e2e/../../package.json'],
+      ['/etc/cron.d/evil.spec.ts'],
+      ['../../.github/scripts/release.sh'],
+    ])('writes nothing for %s', async (filename) => {
+      const result = await writeTests([{ ...testFile, filename }], '/work', 'e2e');
+      expect(result).toEqual([]);
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+      expect(mockMkdirSync).not.toHaveBeenCalled();
+    });
+
+    it('skips the poisoned test but still writes the legitimate ones', async () => {
+      const tests = [
+        { ...testFile, filename: '../../package.json' },
+        { ...testFile, filename: 'good.spec.ts' },
+      ];
+      const result = await writeTests(tests, '/work', 'e2e');
+      expect(result).toEqual(['/work/e2e/good.spec.ts']);
+      expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+      expect(mockWriteFileSync).toHaveBeenCalledWith('/work/e2e/good.spec.ts', testFile.code, 'utf-8');
+    });
+
+    it('normalises filename in place so downstream consumers use the safe value', async () => {
+      const test = { ...testFile, filename: 'e2e/nested/a.spec.ts' };
+      await writeTests([test], '/work', 'e2e');
+      expect(test.filename).toBe('nested/a.spec.ts');
+    });
+  });
 });
 
 describe('runTests', () => {
@@ -100,6 +133,35 @@ describe('runTests', () => {
       ['playwright', 'test', 'login.spec.ts', '--reporter=line'],
       expect.objectContaining({ cwd: '/work', ignoreReturnCode: true })
     );
+  });
+
+  it('refuses to run a test whose filename escapes the test dir', async () => {
+    (exec.exec as jest.Mock).mockResolvedValue(0);
+    const results = await runTests([{ ...testFile, filename: '../../package.json' }], mockConfig, '/work');
+    expect(exec.exec).not.toHaveBeenCalled();
+    expect(results[0].passed).toBe(false);
+  });
+
+  // Regression: the child process inherited the action's own credentials.
+  it('does not leak action credentials into the playwright environment', async () => {
+    (exec.exec as jest.Mock).mockResolvedValue(0);
+    const restore = { ...process.env };
+    process.env['INPUT_API-KEY'] = 'gci_live_secret';
+    process.env.GITHUB_TOKEN = 'ghs_secret';
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-secret';
+    try {
+      await runTests([testFile], mockConfig, '/work');
+      const opts = (exec.exec as jest.Mock).mock.calls[0][2];
+      expect(opts.env).not.toHaveProperty('INPUT_API-KEY');
+      expect(opts.env).not.toHaveProperty('GITHUB_TOKEN');
+      expect(opts.env).not.toHaveProperty('ANTHROPIC_API_KEY');
+      expect(Object.values(opts.env).join('\n')).not.toContain('secret');
+      // still passes through what the tests need
+      expect(opts.env.BASE_URL).toBe('http://localhost:3000');
+      expect(opts.env.CI).toBe('true');
+    } finally {
+      process.env = restore;
+    }
   });
 });
 
