@@ -7,6 +7,7 @@ import { readExistingTests, formatExistingTestsForAPI } from './existing-tests';
 import { ensurePlaywright, ensurePlaywrightConfig, runTests, writeTests } from './test-runner';
 import { healFailedTests } from './self-healer';
 import { createBootstrapPR } from './git-ops';
+import { resolveTestPath } from './safe-paths';
 
 export interface BootstrapOutcome {
   testsGenerated: number;
@@ -95,7 +96,16 @@ export async function runBootstrap(
 
   // Commit the verified-passing suite, plus the auth scaffold + config when
   // authenticated journeys exist (so "add 2 secrets and re-run" works).
-  const passingFiles = passed.map((r) => path.join(workDir, config.testDir, r.filename));
+  // Last gate before these paths become a commit: re-resolve rather than
+  // trusting that the name still matches what writeTests validated.
+  const passingFiles = passed.flatMap((r) => {
+    try {
+      return [resolveTestPath(workDir, config.testDir, r.filename).absolute];
+    } catch (err) {
+      core.warning(err instanceof Error ? err.message : String(err));
+      return [];
+    }
+  });
   const commitFiles = [...passingFiles];
   if (withAuth && authSetupPath && passingFiles.length > 0) {
     commitFiles.push(authSetupPath);

@@ -3,6 +3,8 @@ import * as exec from '@actions/exec';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ActionConfig, GeneratedTest, TestResult } from './types';
+import { resolveTestPath, assertSafeToWrite } from './safe-paths';
+import { buildTestEnv } from './test-env';
 
 /**
  * Zero-test repos (the bootstrap audience) usually have neither
@@ -76,16 +78,34 @@ export async function writeTests(tests: GeneratedTest[], workDir: string, testDi
   const writtenFiles: string[] = [];
 
   for (const test of tests) {
-    // Models sometimes emit filenames already prefixed with the test dir
-    // (e.g. "e2e/auth.spec.ts") — strip it to avoid e2e/e2e/ nesting.
-    if (test.filename.startsWith(`${testDir}/`)) {
-      test.filename = test.filename.slice(testDir.length + 1);
+    // The filename is model output and the model reads the PR diff, so it is
+    // attacker-reachable — resolve it under the test dir or drop this test.
+    // Skipping rather than throwing keeps one poisoned suggestion from failing
+    // a run that has other, legitimate tests in it.
+    let resolved;
+    try {
+      resolved = resolveTestPath(workDir, testDir, test.filename);
+    } catch (err) {
+      core.warning(err instanceof Error ? err.message : String(err));
+      continue;
     }
-    const filePath = path.join(workDir, testDir, test.filename);
+    // Write the normalised name back so every downstream consumer (runTests,
+    // the commit step, PR reporting) works from the value we validated.
+    test.filename = resolved.relative;
+    const filePath = resolved.absolute;
     const dir = path.dirname(filePath);
 
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
+    }
+
+    // Filesystem-level containment, after mkdir so the parent chain is real.
+    // See safe-paths.ts: the lexical check alone is symlink-blind.
+    try {
+      assertSafeToWrite(path.resolve(workDir, testDir), filePath);
+    } catch (err) {
+      core.warning(err instanceof Error ? err.message : String(err));
+      continue;
     }
 
     const isUpdate = fs.existsSync(filePath);
@@ -105,7 +125,21 @@ export async function runTests(
   const results: TestResult[] = [];
 
   for (const test of tests) {
-    const filePath = path.join(workDir, config.testDir, test.filename);
+    // Independent of writeTests' check: a test can reach runTests without
+    // having been written this run (healed reruns, callers we don't control).
+    let filePath: string;
+    try {
+      filePath = resolveTestPath(workDir, config.testDir, test.filename).absolute;
+    } catch (err) {
+      core.warning(err instanceof Error ? err.message : String(err));
+      results.push({
+        filename: test.filename,
+        passed: false,
+        duration: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
     const startTime = Date.now();
 
     let stdout = '';
@@ -116,11 +150,12 @@ export async function runTests(
       const basename = path.basename(filePath);
       const exitCode = await exec.exec('npx', ['playwright', 'test', basename, '--reporter=line'], {
         cwd: workDir,
-        env: {
-          ...process.env,
+        // Model-authored code runs here — see test-env.ts. Never spread
+        // process.env directly into this call.
+        env: buildTestEnv(process.env, {
           BASE_URL: config.baseUrl,
           CI: 'true',
-        },
+        }),
         silent: true,
         listeners: {
           stdout: (data) => {

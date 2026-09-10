@@ -2,7 +2,10 @@ import { ChangeContext, GeneratedTest, ILLMClient, ActionConfig } from '../src/t
 
 // Mock the test-runner module
 jest.mock('../src/test-runner', () => ({
-  writeTests: jest.fn().mockResolvedValue(['/tmp/test.spec.ts']),
+  // Mirror the real contract: writeTests returns the absolute paths it wrote,
+  // which correspond to the tests it was given (mockTest is e2e/dashboard.spec.ts
+  // under workDir '/tmp' with testDir 'e2e').
+  writeTests: jest.fn().mockResolvedValue(['/tmp/e2e/dashboard.spec.ts']),
   runTests: jest.fn().mockResolvedValue([{ filename: 'e2e/test.spec.ts', passed: true, duration: 100 }]),
   ensurePlaywright: jest.fn().mockResolvedValue(false),
   ensurePlaywrightConfig: jest.fn().mockReturnValue(false),

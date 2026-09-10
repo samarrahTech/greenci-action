@@ -11,6 +11,7 @@ import { runMigration, buildMigrationReportBody } from './migrator';
 import { uploadTraces } from './trace-uploader';
 import { uploadResults } from './results-uploader';
 import { runBootstrap } from './bootstrap-runner';
+import { resolveTestPath } from './safe-paths';
 
 async function run(): Promise<void> {
   try {
@@ -121,7 +122,15 @@ async function run(): Promise<void> {
       const testDir = config.testDir || 'e2e';
       const passingFiles = report.tests
         .filter((t) => t.passed)
-        .map((t) => path.join(workDir, testDir, t.filename));
+        .flatMap((t) => {
+          // Last gate before commit — see safe-paths.ts.
+          try {
+            return [resolveTestPath(workDir, testDir, t.filename).absolute];
+          } catch (err) {
+            core.warning(err instanceof Error ? err.message : String(err));
+            return [];
+          }
+        });
       core.info(`Attempting to commit ${passingFiles.length} file(s): ${passingFiles.join(', ')}`);
       const committed = await commitTests(token, prContext, passingFiles, workDir);
       report.committedFiles = committed;

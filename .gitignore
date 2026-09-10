@@ -2,6 +2,8 @@ node_modules/
 coverage/
 *.js.map
 .env
+.env.*
+!.env.example
 .DS_Store
 
 # dist/ declaration source maps embed absolute paths and are not deterministic across environments

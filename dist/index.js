@@ -30994,6 +30994,7 @@ const existing_tests_1 = __nccwpck_require__(2738);
 const test_runner_1 = __nccwpck_require__(7194);
 const self_healer_1 = __nccwpck_require__(6523);
 const git_ops_1 = __nccwpck_require__(7482);
+const safe_paths_1 = __nccwpck_require__(3);
 /**
  * Bootstrap mode: build a foundational suite for an app with no tests.
  * Journeys (plain English) + rendered page HTML → generate → run → heal →
@@ -31053,7 +31054,17 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     const failed = allResults.filter((r) => !r.passed);
     // Commit the verified-passing suite, plus the auth scaffold + config when
     // authenticated journeys exist (so "add 2 secrets and re-run" works).
-    const passingFiles = passed.map((r) => path.join(workDir, config.testDir, r.filename));
+    // Last gate before these paths become a commit: re-resolve rather than
+    // trusting that the name still matches what writeTests validated.
+    const passingFiles = passed.flatMap((r) => {
+        try {
+            return [(0, safe_paths_1.resolveTestPath)(workDir, config.testDir, r.filename).absolute];
+        }
+        catch (err) {
+            core.warning(err instanceof Error ? err.message : String(err));
+            return [];
+        }
+    });
     const commitFiles = [...passingFiles];
     if (withAuth && authSetupPath && passingFiles.length > 0) {
         commitFiles.push(authSetupPath);
@@ -31211,8 +31222,14 @@ function getConfig() {
     // key is only required for the hosted provider (still used for optional
     // trace uploads if provided).
     const apiKeyRequired = provider === 'greenci';
+    // Register the key with the runner's masker. Workflows that pass it as a
+    // literal (or from a var rather than a secret) are otherwise one core.info
+    // or one stack trace away from printing it into a public log.
+    const apiKey = core.getInput('api-key', { required: apiKeyRequired });
+    if (apiKey)
+        core.setSecret(apiKey);
     return {
-        apiKey: core.getInput('api-key', { required: apiKeyRequired }),
+        apiKey,
         llmProvider: provider,
         llmModel: core.getInput('llm-model') || '',
         awsRegion: core.getInput('aws-region') || 'us-east-1',
@@ -32091,6 +32108,7 @@ const migrator_1 = __nccwpck_require__(1440);
 const trace_uploader_1 = __nccwpck_require__(8441);
 const results_uploader_1 = __nccwpck_require__(6444);
 const bootstrap_runner_1 = __nccwpck_require__(7628);
+const safe_paths_1 = __nccwpck_require__(3);
 async function run() {
     try {
         const config = (0, config_1.getConfig)();
@@ -32184,7 +32202,16 @@ async function run() {
             const testDir = config.testDir || 'e2e';
             const passingFiles = report.tests
                 .filter((t) => t.passed)
-                .map((t) => path.join(workDir, testDir, t.filename));
+                .flatMap((t) => {
+                // Last gate before commit — see safe-paths.ts.
+                try {
+                    return [(0, safe_paths_1.resolveTestPath)(workDir, testDir, t.filename).absolute];
+                }
+                catch (err) {
+                    core.warning(err instanceof Error ? err.message : String(err));
+                    return [];
+                }
+            });
             core.info(`Attempting to commit ${passingFiles.length} file(s): ${passingFiles.join(', ')}`);
             const committed = await (0, git_ops_1.commitTests)(token, prContext, passingFiles, workDir);
             report.committedFiles = committed;
@@ -33560,6 +33587,181 @@ async function uploadResults(apiUrl, apiKey, prContext, report) {
 
 /***/ }),
 
+/***/ 3:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.UnsafeTestPathError = void 0;
+exports.resolveTestPath = resolveTestPath;
+exports.assertSafeToWrite = assertSafeToWrite;
+exports.isSafeTestPath = isSafeTestPath;
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
+/**
+ * Test filenames are model output, and model output is attacker-reachable:
+ * the PR diff is fed to the model, so a contributor can put
+ * `// filename: ../../.github/scripts/release.sh` in a comment and try to get
+ * the action to write — and then commit — a file outside the test directory.
+ *
+ * `path.join` does NOT neutralise `..`; it resolves it. Every place that turns
+ * a model-supplied filename into a real path must go through resolveTestPath.
+ */
+class UnsafeTestPathError extends Error {
+    constructor(filename, reason) {
+        super(`Refusing to use test filename ${JSON.stringify(filename)}: ${reason}`);
+        this.name = 'UnsafeTestPathError';
+    }
+}
+exports.UnsafeTestPathError = UnsafeTestPathError;
+/**
+ * Suffixes a generated Playwright test is allowed to have.
+ *
+ * Must stay in step with existing-tests.ts, which harvests BOTH `.spec.*` and
+ * `.test.*`, and with the prompt that tells the model to reuse an existing
+ * filename when updating a test. Accepting only `.spec.*` here silently drops
+ * every update in a repo whose e2e files are named `*.test.ts` — which is also
+ * Playwright's default testMatch.
+ */
+const ALLOWED_SUFFIX = /\.(spec|test)\.(ts|tsx|js|jsx|mts|mjs)$/;
+/**
+ * Resolve a model-supplied test filename to an absolute path inside the test
+ * directory, or throw. Containment is checked on the *resolved* path, which is
+ * the only check that actually holds — prefix-stripping and `..` counting are
+ * both bypassable.
+ */
+function resolveTestPath(workDir, testDir, filename) {
+    if (typeof filename !== 'string' || filename.trim() === '') {
+        throw new UnsafeTestPathError(String(filename), 'empty or not a string');
+    }
+    if (filename.includes('\0')) {
+        throw new UnsafeTestPathError(filename, 'contains a null byte');
+    }
+    // Backslashes are a path separator on win32 and a traversal vector there;
+    // runners are Linux, but never let the meaning of a path depend on the OS.
+    if (filename.includes('\\')) {
+        throw new UnsafeTestPathError(filename, 'contains a backslash');
+    }
+    if (path.isAbsolute(filename) || /^[a-zA-Z]:/.test(filename)) {
+        throw new UnsafeTestPathError(filename, 'is an absolute path');
+    }
+    // Models often echo the test dir back ("e2e/auth.spec.ts") — strip one
+    // leading copy so we don't nest e2e/e2e/. Cosmetic, not a security control.
+    let candidate = filename;
+    if (testDir && candidate.startsWith(`${testDir}/`)) {
+        candidate = candidate.slice(testDir.length + 1);
+    }
+    if (!ALLOWED_SUFFIX.test(path.basename(candidate))) {
+        throw new UnsafeTestPathError(filename, 'is not a .spec/.test .{ts,tsx,js,jsx,mts,mjs} file');
+    }
+    const root = path.resolve(workDir, testDir);
+    const absolute = path.resolve(root, candidate);
+    // The containment check. `absolute === root` is also rejected: a filename
+    // that resolves to the directory itself is not a file we should write.
+    if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+        throw new UnsafeTestPathError(filename, `escapes the test directory (${root})`);
+    }
+    if (absolute === root) {
+        throw new UnsafeTestPathError(filename, 'resolves to the test directory itself');
+    }
+    return { absolute, relative: path.relative(root, absolute) };
+}
+/**
+ * Containment check that also survives symlinks.
+ *
+ * `resolveTestPath` resolves lexically, which is the right check for the *name*
+ * but blind to the filesystem: the attacker in this threat model supplies the
+ * PR contents as well as the injected filename, so they can commit
+ * `e2e/login.spec.ts` as a symlink to `../../.git/hooks/pre-commit`. That name
+ * passes every lexical rule, and `fs.writeFileSync` follows the link — writing
+ * attacker-chosen content outside the test directory, which is then committed
+ * (and, for a hook, executed).
+ *
+ * So before writing: reject if the target itself is a symlink, and verify the
+ * real path of the parent directory is still inside the real test directory.
+ */
+function assertSafeToWrite(root, absolute) {
+    // If the path exists at all, it must be a regular file — not a link.
+    let stat;
+    try {
+        stat = fs.lstatSync(absolute);
+    }
+    catch {
+        stat = undefined; // does not exist yet: fine, that's the common case
+    }
+    if (stat && stat.isSymbolicLink()) {
+        throw new UnsafeTestPathError(absolute, 'already exists as a symlink');
+    }
+    if (stat && !stat.isFile()) {
+        throw new UnsafeTestPathError(absolute, 'exists and is not a regular file');
+    }
+    // The parent chain must not escape via a link either.
+    const realRoot = realPathOrSelf(root);
+    const realParent = realPathOrSelf(path.dirname(absolute));
+    if (realParent !== realRoot && !realParent.startsWith(realRoot + path.sep)) {
+        throw new UnsafeTestPathError(absolute, 'resolves outside the test directory via a symlinked parent');
+    }
+}
+/** realpath, falling back to the lexical path when it doesn't exist yet. */
+function realPathOrSelf(p) {
+    try {
+        return fs.realpathSync.native(p);
+    }
+    catch {
+        return path.resolve(p);
+    }
+}
+/**
+ * True when the filename is safe. For call sites that want to skip a bad test
+ * and carry on rather than fail the whole run.
+ */
+function isSafeTestPath(workDir, testDir, filename) {
+    try {
+        resolveTestPath(workDir, testDir, filename);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+
+
+/***/ }),
+
 /***/ 6523:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -33675,6 +33877,77 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir)
 
 /***/ }),
 
+/***/ 925:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/**
+ * Playwright runs code the model wrote. Whatever is in that process's
+ * environment is readable by it — and a poisoned PR can influence what the
+ * model writes. So the child process gets the runner's environment minus every
+ * credential the action itself holds.
+ *
+ * What deliberately stays: TEST_USER_EMAIL / TEST_USER_PASSWORD and anything
+ * else the repo owner set for their own tests. Those exist to be used by tests;
+ * stripping them would break sign-in flows.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isSensitiveEnvName = isSensitiveEnvName;
+exports.buildTestEnv = buildTestEnv;
+/** Exact env names that are the action's own credentials, never the tests'. */
+const SENSITIVE_NAMES = new Set([
+    // Provider keys for BYO-LLM modes
+    'ANTHROPIC_API_KEY',
+    'OPENAI_API_KEY',
+    'AZURE_OPENAI_API_KEY',
+    'AZURE_OPENAI_KEY',
+    // Bedrock
+    'AWS_ACCESS_KEY_ID',
+    'AWS_SECRET_ACCESS_KEY',
+    'AWS_SESSION_TOKEN',
+    // Repo write access — this is the one that turns a file write into a commit
+    'GITHUB_TOKEN',
+    'GH_TOKEN',
+    // Runner-issued tokens: cache poisoning and OIDC identity theft
+    'ACTIONS_RUNTIME_TOKEN',
+    'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+    'ACTIONS_ID_TOKEN_REQUEST_URL',
+    'ACTIONS_RESULTS_URL',
+    // Registry publish tokens
+    'NODE_AUTH_TOKEN',
+    'NPM_TOKEN',
+]);
+/**
+ * True for env vars GitHub creates from this action's `with:` block. Every
+ * action input lands here as INPUT_<NAME>, which includes INPUT_API-KEY and
+ * INPUT_GITHUB-TOKEN, so the whole prefix goes.
+ */
+function isActionInput(name) {
+    return name.startsWith('INPUT_');
+}
+function isSensitiveEnvName(name) {
+    return isActionInput(name) || SENSITIVE_NAMES.has(name.toUpperCase());
+}
+/**
+ * Build the environment for the Playwright child process: the parent env with
+ * the action's credentials removed, plus the supplied overrides.
+ */
+function buildTestEnv(parentEnv, overrides = {}) {
+    const env = {};
+    for (const [key, value] of Object.entries(parentEnv)) {
+        if (value === undefined)
+            continue;
+        if (isSensitiveEnvName(key))
+            continue;
+        env[key] = value;
+    }
+    return { ...env, ...overrides };
+}
+
+
+/***/ }),
+
 /***/ 1779:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -33716,6 +33989,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.generateAndRunTests = generateAndRunTests;
 const core = __importStar(__nccwpck_require__(7484));
+const safe_paths_1 = __nccwpck_require__(3);
 const test_runner_1 = __nccwpck_require__(7194);
 const self_healer_1 = __nccwpck_require__(6523);
 const existing_tests_1 = __nccwpck_require__(2738);
@@ -33743,19 +34017,40 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
             committedFiles: [],
         };
     }
-    // 2. Write tests to disk
-    await (0, test_runner_1.writeTests)(generatedTests, workDir, config.testDir);
+    // 2. Write tests to disk. writeTests drops any test whose filename failed
+    // validation, so report from what actually landed — not from what the model
+    // proposed — or the PR comment claims tests that do not exist on disk.
+    const writtenFiles = await (0, test_runner_1.writeTests)(generatedTests, workDir, config.testDir);
+    // Exact absolute-path membership, not basename: writeTests normalises
+    // test.filename in place to the path it validated, so this is the same value
+    // it pushed. Basename matching would conflate auth/login.spec.ts with
+    // admin/login.spec.ts.
+    const writtenSet = new Set(writtenFiles);
+    const writtenTests = generatedTests.filter((t) => {
+        // Resolve the same way writeTests did rather than relying on its in-place
+        // normalisation of test.filename — resolveTestPath is idempotent, so this
+        // matches whether or not the name has already been rewritten.
+        try {
+            return writtenSet.has((0, safe_paths_1.resolveTestPath)(workDir, config.testDir, t.filename).absolute);
+        }
+        catch {
+            return false;
+        }
+    });
+    if (writtenTests.length !== generatedTests.length) {
+        core.warning(`${generatedTests.length - writtenTests.length} generated test(s) were rejected and not written.`);
+    }
     // 2b. If generate-only mode, skip running tests entirely
     if (config.mode === 'generate-only') {
         core.info('📝 Generate-only mode: skipping test execution');
         return {
-            testsGenerated: generatedTests.length,
+            testsGenerated: writtenTests.length,
             testsPassed: 0,
             testsFailed: 0,
             testsHealed: 0,
             filesChanged: context.modifiedFiles.map((f) => f.filename),
             duration: Date.now() - startTime,
-            tests: generatedTests.map((t) => ({
+            tests: writtenTests.map((t) => ({
                 filename: t.filename,
                 passed: true, // Treat as passed for commit purposes
                 duration: 0,
@@ -33767,10 +34062,13 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     await (0, test_runner_1.ensurePlaywright)(workDir);
     (0, test_runner_1.ensurePlaywrightConfig)(workDir, config.baseUrl, config.testDir);
     core.info('🏃 Running tests...');
-    const initialResults = await (0, test_runner_1.runTests)(generatedTests, config, workDir);
+    const initialResults = await (0, test_runner_1.runTests)(writtenTests, config, workDir);
     // 4. Self-heal failed tests
     const failedTests = initialResults
-        .map((result, i) => ({ test: generatedTests[i], result }))
+        // Pair against writtenTests: runTests was given that array, so index i
+        // refers to it. Pairing with generatedTests here would mis-associate every
+        // test after a rejected one.
+        .map((result, i) => ({ test: writtenTests[i], result }))
         .filter(({ result }) => !result.passed);
     let healedTests = [];
     let healedResults = [];
@@ -33791,7 +34089,7 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     const totalPassed = allResults.filter((r) => r.passed).length;
     const totalFailed = allResults.filter((r) => !r.passed).length;
     return {
-        testsGenerated: generatedTests.length,
+        testsGenerated: writtenTests.length,
         testsPassed: totalPassed,
         testsFailed: totalFailed,
         testsHealed: healedTests.length,
@@ -33855,6 +34153,8 @@ const core = __importStar(__nccwpck_require__(7484));
 const exec = __importStar(__nccwpck_require__(5236));
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
+const safe_paths_1 = __nccwpck_require__(3);
+const test_env_1 = __nccwpck_require__(925);
 /**
  * Zero-test repos (the bootstrap audience) usually have neither
  * @playwright/test nor browsers installed. Install what's missing so the
@@ -33913,15 +34213,34 @@ export default defineConfig({
 async function writeTests(tests, workDir, testDir = 'e2e') {
     const writtenFiles = [];
     for (const test of tests) {
-        // Models sometimes emit filenames already prefixed with the test dir
-        // (e.g. "e2e/auth.spec.ts") — strip it to avoid e2e/e2e/ nesting.
-        if (test.filename.startsWith(`${testDir}/`)) {
-            test.filename = test.filename.slice(testDir.length + 1);
+        // The filename is model output and the model reads the PR diff, so it is
+        // attacker-reachable — resolve it under the test dir or drop this test.
+        // Skipping rather than throwing keeps one poisoned suggestion from failing
+        // a run that has other, legitimate tests in it.
+        let resolved;
+        try {
+            resolved = (0, safe_paths_1.resolveTestPath)(workDir, testDir, test.filename);
         }
-        const filePath = path.join(workDir, testDir, test.filename);
+        catch (err) {
+            core.warning(err instanceof Error ? err.message : String(err));
+            continue;
+        }
+        // Write the normalised name back so every downstream consumer (runTests,
+        // the commit step, PR reporting) works from the value we validated.
+        test.filename = resolved.relative;
+        const filePath = resolved.absolute;
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
+        }
+        // Filesystem-level containment, after mkdir so the parent chain is real.
+        // See safe-paths.ts: the lexical check alone is symlink-blind.
+        try {
+            (0, safe_paths_1.assertSafeToWrite)(path.resolve(workDir, testDir), filePath);
+        }
+        catch (err) {
+            core.warning(err instanceof Error ? err.message : String(err));
+            continue;
         }
         const isUpdate = fs.existsSync(filePath);
         fs.writeFileSync(filePath, test.code, 'utf-8');
@@ -33933,7 +34252,22 @@ async function writeTests(tests, workDir, testDir = 'e2e') {
 async function runTests(tests, config, workDir) {
     const results = [];
     for (const test of tests) {
-        const filePath = path.join(workDir, config.testDir, test.filename);
+        // Independent of writeTests' check: a test can reach runTests without
+        // having been written this run (healed reruns, callers we don't control).
+        let filePath;
+        try {
+            filePath = (0, safe_paths_1.resolveTestPath)(workDir, config.testDir, test.filename).absolute;
+        }
+        catch (err) {
+            core.warning(err instanceof Error ? err.message : String(err));
+            results.push({
+                filename: test.filename,
+                passed: false,
+                duration: 0,
+                error: err instanceof Error ? err.message : String(err),
+            });
+            continue;
+        }
         const startTime = Date.now();
         let stdout = '';
         let stderr = '';
@@ -33942,11 +34276,12 @@ async function runTests(tests, config, workDir) {
             const basename = path.basename(filePath);
             const exitCode = await exec.exec('npx', ['playwright', 'test', basename, '--reporter=line'], {
                 cwd: workDir,
-                env: {
-                    ...process.env,
+                // Model-authored code runs here — see test-env.ts. Never spread
+                // process.env directly into this call.
+                env: (0, test_env_1.buildTestEnv)(process.env, {
                     BASE_URL: config.baseUrl,
                     CI: 'true',
-                },
+                }),
                 silent: true,
                 listeners: {
                     stdout: (data) => {

@@ -20,11 +20,21 @@ on:
   pull_request:
     types: [opened, synchronize]
 
+permissions:
+  contents: write      # required for auto-commit
+  pull-requests: write # required for the PR comment
+
 jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # GreenCI runs model-authored test code on this runner. By default
+          # checkout leaves the repo token in .git/config, where that code can
+          # read it. GreenCI commits via the API, not the git remote, so it
+          # does not need the stored credential.
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -46,6 +56,25 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+> **Set `persist-credentials: false` on checkout.**
+> The tests GreenCI generates are model-authored and run on your runner. GreenCI
+> strips its own credentials from the environment those tests execute in, but
+> `actions/checkout` defaults to writing the repo token into `.git/config`,
+> which is on disk and outside that boundary. GreenCI commits through the
+> GitHub API, so turning this off costs nothing.
+
+> **Use `pull_request`, not `pull_request_target`.**
+> GreenCI reads the pull request's diff and passes it to a model. Under
+> `pull_request_target` the job runs with repository secrets and write access
+> while checking out untrusted head code, so anyone who can open a PR from a
+> fork inherits them. GreenCI validates every generated test path and strips its
+> own credentials from the environment the tests run in, but that does not make
+> `pull_request_target` safe for this workflow.
+>
+> Fork PRs get a read-only token, so `auto-commit` (default `true`) cannot push
+> to them. Set `auto-commit: false` for fork runs, or restrict the workflow to
+> branches in your own repository.
 
 ## Inputs
 
