@@ -32461,11 +32461,16 @@ class GreenCIClient {
                     test: request.test,
                     error: request.error,
                     attempt: request.attempt,
+                    // Flatten to strings, exactly as the generate call above does. The
+                    // API declares these as string arrays; routes/components/apiEndpoints
+                    // are arrays of objects in ChangeContext, so passing them raw made
+                    // every heal request fail schema validation with
+                    // "Expected string, received object".
                     context: {
-                        changedFiles: request.context.modifiedFiles?.map(f => f.filename) ?? [],
-                        routes: request.context.routes,
-                        components: request.context.components,
-                        apiEndpoints: request.context.apiEndpoints,
+                        changedFiles: request.context.modifiedFiles?.map((f) => f.filename) ?? [],
+                        routes: request.context.routes?.map((r) => r.path) ?? [],
+                        components: request.context.components?.map((c) => c.name) ?? [],
+                        apiEndpoints: request.context.apiEndpoints?.map((e) => `${e.method} ${e.path}`) ?? [],
                         summary: request.context.summary,
                     },
                 }),
