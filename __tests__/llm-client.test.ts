@@ -121,6 +121,48 @@ describe('GreenCIClient', () => {
       expect(result).toEqual(healedTest);
     });
 
+    /**
+     * Regression: the heal payload passed context.routes/components/apiEndpoints
+     * through as the objects they are in ChangeContext, while the API declares
+     * them as string arrays. Every heal request 400'd with
+     * "Expected string, received object" — self-healing, the product's headline
+     * feature, was broken on any PR whose diff produced routes or components.
+     *
+     * It survived because the existing tests here mock fetch and assert only on
+     * the RESPONSE. Nothing looked at what was actually sent.
+     */
+    it('sends context arrays as strings, matching the API schema', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ test: { filename: 'e2e/a.spec.ts', code: 'x', description: '', confidence: 1 } }),
+      });
+
+      await client.healTest(
+        {
+          test: { filename: 'e2e/test.spec.ts', code: 'broken', description: 'test', confidence: 0.5 },
+          error: 'timeout',
+          attempt: 1,
+          context: mockContext,
+        },
+        mockConfig,
+      );
+
+      const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+      for (const field of ['routes', 'components', 'apiEndpoints', 'changedFiles']) {
+        expect(Array.isArray(body.context[field])).toBe(true);
+        for (const entry of body.context[field]) {
+          expect(typeof entry).toBe('string');
+        }
+      }
+      // Flattened the same way the generate call does it.
+      expect(body.context.routes).toEqual(['/dashboard']);
+      expect(body.context.components).toEqual(['Button']);
+      expect(body.context.apiEndpoints).toEqual(['GET /api/users']);
+      // The fields the schema requires as strings must still be strings.
+      expect(typeof body.error).toBe('string');
+      expect(typeof body.test.code).toBe('string');
+    });
+
     it('should throw on API failure so the heal attempt is not silently wasted', async () => {
       (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500, text: async () => '' });
       const originalTest = { filename: 'e2e/test.spec.ts', code: 'original', description: 'test', confidence: 0.5 };
