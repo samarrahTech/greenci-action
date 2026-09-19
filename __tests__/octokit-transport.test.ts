@@ -1,3 +1,4 @@
+import * as github from '@actions/github';
 import * as http from 'http';
 import type { AddressInfo } from 'net';
 
@@ -53,10 +54,9 @@ describe('Octokit transport (undici, unmocked)', () => {
   });
 
   function client() {
-    // Required lazily: jest.mock('@actions/github') in sibling suites must not
-    // apply here, and this file deliberately uses the real module.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const github = require('@actions/github');
+    // A normal import is safe here: jest's module registry is per test file, so
+    // jest.mock('@actions/github') in sibling suites does not reach this one.
+    // This file deliberately uses the real module and the real transport.
     return github.getOctokit('t0ken', { baseUrl });
   }
 
