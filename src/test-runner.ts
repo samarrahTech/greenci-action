@@ -3,7 +3,8 @@ import * as exec from '@actions/exec';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ActionConfig, GeneratedTest, TestResult } from './types';
-import { resolveTestPath, assertSafeToWrite } from './safe-paths';
+import { resolveTestPath, assertSafeToWrite, ALLOWED_SUFFIX } from './safe-paths';
+import type { RenamedTest } from './existing-tests';
 import { buildTestEnv } from './test-env';
 import { AUTH_SETUP_FILENAME, STORAGE_STATE_PATH, hasTestCredentials } from './auth-scaffold';
 
@@ -25,11 +26,16 @@ export async function ensurePlaywright(workDir: string): Promise<boolean> {
     installed = true;
   }
 
+  // This step is pure runner time (apt + browser download) and has ranged
+  // from ~1 to ~10 minutes on GitHub-hosted runners — log it so a slow run
+  // is attributable at a glance.
+  const started = Date.now();
   core.info('🌐 Ensuring Chromium is installed for Playwright...');
   await exec.exec('npx', ['playwright', 'install', '--with-deps', 'chromium'], {
     cwd: workDir,
     silent: true,
   });
+  core.info(`🌐 Chromium ready (${Math.round((Date.now() - started) / 1000)}s)`);
 
   return installed;
 }
@@ -167,10 +173,54 @@ export async function ensureAuthSession(
   return { status: 'ok' };
 }
 
-export async function writeTests(tests: GeneratedTest[], workDir: string, testDir: string = 'e2e'): Promise<string[]> {
+/**
+ * Bootstrap must never rewrite a test the customer already has. The guard
+ * lives at write time, against the filesystem, so it holds for every path
+ * that reaches writeTests (generation, healing) and for files the prompt's
+ * existing-tests list never saw (large files, other extensions). A file this
+ * run wrote (`owned`) may be rewritten — that is how healing works.
+ */
+export interface ProtectExisting {
+  /** Absolute paths written by this run; rewriting those is fine. */
+  owned: Set<string>;
+  /** Collisions with files that were already in the repo, for the PR body. */
+  renamed: RenamedTest[];
+}
+
+function bootstrapName(relative: string, taken: (candidate: string) => boolean): string {
+  const m = relative.match(ALLOWED_SUFFIX);
+  const ext = m ? m[0] : '';
+  const stem = relative.slice(0, relative.length - ext.length);
+  let candidate = `${stem}-bootstrap${ext}`;
+  for (let n = 2; taken(candidate); n++) candidate = `${stem}-bootstrap-${n}${ext}`;
+  return candidate;
+}
+
+export async function writeTests(
+  tests: GeneratedTest[],
+  workDir: string,
+  testDir: string = 'e2e',
+  protect?: ProtectExisting,
+): Promise<string[]> {
   const writtenFiles: string[] = [];
 
   for (const test of tests) {
+    if (protect) {
+      let resolved;
+      try {
+        resolved = resolveTestPath(workDir, testDir, test.filename);
+      } catch {
+        resolved = undefined; // the loop below reports and skips it
+      }
+      if (resolved && fs.existsSync(resolved.absolute) && !protect.owned.has(resolved.absolute)) {
+        const root = path.resolve(workDir, testDir);
+        const to = bootstrapName(resolved.relative, (c) => fs.existsSync(path.join(root, c)));
+        core.warning(`✋ ${resolved.relative} already exists in this repo — writing the generated test as ${to} instead of overwriting it`);
+        protect.renamed.push({ from: resolved.relative, to });
+        test.filename = to;
+      }
+    }
+
     // The filename is model output and the model reads the PR diff, so it is
     // attacker-reachable — resolve it under the test dir or drop this test.
     // Skipping rather than throwing keeps one poisoned suggestion from failing
@@ -203,6 +253,7 @@ export async function writeTests(tests: GeneratedTest[], workDir: string, testDi
 
     const isUpdate = fs.existsSync(filePath);
     fs.writeFileSync(filePath, test.code, 'utf-8');
+    protect?.owned.add(filePath);
     writtenFiles.push(filePath);
     core.info(`${isUpdate ? '♻️ Updated' : '✨ Created'} test: ${test.filename}`);
   }

@@ -26,7 +26,7 @@ export class UnsafeTestPathError extends Error {
  * every update in a repo whose e2e files are named `*.test.ts` — which is also
  * Playwright's default testMatch.
  */
-const ALLOWED_SUFFIX = /\.(spec|test)\.(ts|tsx|js|jsx|mts|mjs)$/;
+export const ALLOWED_SUFFIX = /\.(spec|test)\.(ts|tsx|js|jsx|mts|mjs)$/;
 
 export interface ResolvedTestPath {
   /** Absolute path to write/run, guaranteed inside `<workDir>/<testDir>`. */

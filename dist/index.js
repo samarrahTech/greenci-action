@@ -36817,7 +36817,9 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     if (generatedTests.length === 0) {
         return { testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, prUrl: null };
     }
-    await (0, test_runner_1.writeTests)(generatedTests, workDir, config.testDir);
+    // Never rewrite a spec the customer already has (see ProtectExisting).
+    const protect = { owned: new Set(), renamed: [] };
+    await (0, test_runner_1.writeTests)(generatedTests, workDir, config.testDir, protect);
     // Authenticated journeys: commit a ready-to-run login setup so the customer
     // only has to add two secrets (auth architecture option B).
     const withAuth = (0, auth_scaffold_1.needsAuthScaffold)(generatedTests);
@@ -36852,7 +36854,7 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     if (failedTests.length > 0) {
         if (config.maxRetries > 0)
             core.info(`🔧 Healing ${failedTests.length} failing bootstrap test(s)...`);
-        const healing = await (0, self_healer_1.healFailedTests)(failedTests, emptyChangeContext(), config, llmClient, workDir);
+        const healing = await (0, self_healer_1.healFailedTests)(failedTests, emptyChangeContext(), config, llmClient, workDir, protect);
         healed = healing.healed;
         healedResults = healing.results;
         suspectedBugs = healing.suspectedBugs;
@@ -36900,6 +36902,7 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
             withAuth,
             authSetupStatus: authSession?.status,
             authSetupOutput: authSession?.output,
+            renamed: protect.renamed,
         });
         const result = await (0, git_ops_1.createBootstrapPR)(token, repo.owner, repo.repo, commitFiles, workDir, body);
         prUrl = result.prUrl;
@@ -36936,6 +36939,12 @@ function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, s
             body += `- \`${bug.filename}\` — ${bug.reasoning}\n`;
         }
         body += '\n';
+    }
+    const renamedCommitted = (setup.renamed ?? []).filter((r) => passed.some((p) => p.filename === r.to));
+    if (renamedCommitted.length > 0) {
+        body += '### ✋ Kept your existing tests\n';
+        body += 'These journeys produced a file with the same name as a test already in your repo. GreenCI never overwrites your tests, so the new one was committed alongside it. Diff the pair and keep the one you prefer:\n\n';
+        body += renamedCommitted.map((r) => `- \`${r.from}\` (yours) → \`${r.to}\` (generated)`).join('\n') + '\n\n';
     }
     const authNames = new Set(setup.authBlocked.map((a) => a.filename));
     const otherFailed = failed.filter((f) => !authNames.has(f.filename));
@@ -38965,7 +38974,7 @@ function buildBootstrapPrompt(journeys, pages, baseUrl, existingTests) {
         }
     }
     if (existingTests && existingTests.length > 0) {
-        parts.push('## Existing Tests\nDo not duplicate coverage; match these conventions:\n```\n' +
+        parts.push('## Existing Tests\nThese are already committed and will NOT be overwritten. Do not generate a test for a journey they already cover, and never reuse one of their filenames; match their conventions:\n```\n' +
             existingTests.join('\n---\n') +
             '\n```\n');
     }
@@ -39479,7 +39488,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.UnsafeTestPathError = void 0;
+exports.ALLOWED_SUFFIX = exports.UnsafeTestPathError = void 0;
 exports.resolveTestPath = resolveTestPath;
 exports.assertSafeToWrite = assertSafeToWrite;
 exports.isSafeTestPath = isSafeTestPath;
@@ -39510,7 +39519,7 @@ exports.UnsafeTestPathError = UnsafeTestPathError;
  * every update in a repo whose e2e files are named `*.test.ts` — which is also
  * Playwright's default testMatch.
  */
-const ALLOWED_SUFFIX = /\.(spec|test)\.(ts|tsx|js|jsx|mts|mjs)$/;
+exports.ALLOWED_SUFFIX = /\.(spec|test)\.(ts|tsx|js|jsx|mts|mjs)$/;
 /**
  * Resolve a model-supplied test filename to an absolute path inside the test
  * directory, or throw. Containment is checked on the *resolved* path, which is
@@ -39538,7 +39547,7 @@ function resolveTestPath(workDir, testDir, filename) {
     if (testDir && candidate.startsWith(`${testDir}/`)) {
         candidate = candidate.slice(testDir.length + 1);
     }
-    if (!ALLOWED_SUFFIX.test(path.basename(candidate))) {
+    if (!exports.ALLOWED_SUFFIX.test(path.basename(candidate))) {
         throw new UnsafeTestPathError(filename, 'is not a .spec/.test .{ts,tsx,js,jsx,mts,mjs} file');
     }
     const root = path.resolve(workDir, testDir);
@@ -39658,7 +39667,7 @@ exports.healFailedTests = healFailedTests;
 const core = __importStar(__nccwpck_require__(7484));
 const test_runner_1 = __nccwpck_require__(7194);
 const auth_scaffold_1 = __nccwpck_require__(7972);
-async function healFailedTests(failedTests, context, config, llmClient, workDir) {
+async function healFailedTests(failedTests, context, config, llmClient, workDir, protect) {
     const healed = [];
     const results = [];
     const suspectedBugs = [];
@@ -39703,8 +39712,12 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir)
                     bugSuspected = true;
                     break;
                 }
+                // A heal rewrites THIS file: the API's filename echo is not trusted,
+                // or a renamed bootstrap spec could come back under the customer's
+                // original name and overwrite it.
+                healedTest.filename = currentTest.filename;
                 // Write and run the healed test
-                await (0, test_runner_1.writeTests)([healedTest], workDir, config.testDir);
+                await (0, test_runner_1.writeTests)([healedTest], workDir, config.testDir, protect);
                 const [healedResult] = await (0, test_runner_1.runTests)([healedTest], config, workDir);
                 if (healedResult.passed) {
                     core.info(`✅ ${test.filename} healed on attempt ${attempt}`);
@@ -40035,11 +40048,16 @@ async function ensurePlaywright(workDir) {
         });
         installed = true;
     }
+    // This step is pure runner time (apt + browser download) and has ranged
+    // from ~1 to ~10 minutes on GitHub-hosted runners — log it so a slow run
+    // is attributable at a glance.
+    const started = Date.now();
     core.info('🌐 Ensuring Chromium is installed for Playwright...');
     await exec.exec('npx', ['playwright', 'install', '--with-deps', 'chromium'], {
         cwd: workDir,
         silent: true,
     });
+    core.info(`🌐 Chromium ready (${Math.round((Date.now() - started) / 1000)}s)`);
     return installed;
 }
 /**
@@ -40142,9 +40160,34 @@ async function ensureAuthSession(workDir, config, env = process.env) {
     core.info('✅ Signed in — session saved for the authenticated specs');
     return { status: 'ok' };
 }
-async function writeTests(tests, workDir, testDir = 'e2e') {
+function bootstrapName(relative, taken) {
+    const m = relative.match(safe_paths_1.ALLOWED_SUFFIX);
+    const ext = m ? m[0] : '';
+    const stem = relative.slice(0, relative.length - ext.length);
+    let candidate = `${stem}-bootstrap${ext}`;
+    for (let n = 2; taken(candidate); n++)
+        candidate = `${stem}-bootstrap-${n}${ext}`;
+    return candidate;
+}
+async function writeTests(tests, workDir, testDir = 'e2e', protect) {
     const writtenFiles = [];
     for (const test of tests) {
+        if (protect) {
+            let resolved;
+            try {
+                resolved = (0, safe_paths_1.resolveTestPath)(workDir, testDir, test.filename);
+            }
+            catch {
+                resolved = undefined; // the loop below reports and skips it
+            }
+            if (resolved && fs.existsSync(resolved.absolute) && !protect.owned.has(resolved.absolute)) {
+                const root = path.resolve(workDir, testDir);
+                const to = bootstrapName(resolved.relative, (c) => fs.existsSync(path.join(root, c)));
+                core.warning(`✋ ${resolved.relative} already exists in this repo — writing the generated test as ${to} instead of overwriting it`);
+                protect.renamed.push({ from: resolved.relative, to });
+                test.filename = to;
+            }
+        }
         // The filename is model output and the model reads the PR diff, so it is
         // attacker-reachable — resolve it under the test dir or drop this test.
         // Skipping rather than throwing keeps one poisoned suggestion from failing
@@ -40176,6 +40219,7 @@ async function writeTests(tests, workDir, testDir = 'e2e') {
         }
         const isUpdate = fs.existsSync(filePath);
         fs.writeFileSync(filePath, test.code, 'utf-8');
+        protect?.owned.add(filePath);
         writtenFiles.push(filePath);
         core.info(`${isUpdate ? '♻️ Updated' : '✨ Created'} test: ${test.filename}`);
     }

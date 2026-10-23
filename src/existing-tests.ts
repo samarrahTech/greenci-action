@@ -63,3 +63,8 @@ function scanDirectory(dir: string, rootDir: string, results: ExistingTest[]): v
 export function formatExistingTestsForAPI(tests: ExistingTest[]): string[] {
   return tests.map((t) => `// filename: ${t.filename}\n${t.code}`);
 }
+
+export interface RenamedTest {
+  from: string;
+  to: string;
+}

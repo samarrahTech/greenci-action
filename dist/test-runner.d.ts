@@ -1,4 +1,5 @@
 import { ActionConfig, GeneratedTest, TestResult } from './types';
+import type { RenamedTest } from './existing-tests';
 /**
  * Zero-test repos (the bootstrap audience) usually have neither
  * @playwright/test nor browsers installed. Install what's missing so the
@@ -39,6 +40,19 @@ export interface AuthSessionResult {
  * the config is wired; the setup's own session reuse keeps a second run cheap.
  */
 export declare function ensureAuthSession(workDir: string, config: ActionConfig, env?: NodeJS.ProcessEnv): Promise<AuthSessionResult>;
-export declare function writeTests(tests: GeneratedTest[], workDir: string, testDir?: string): Promise<string[]>;
+/**
+ * Bootstrap must never rewrite a test the customer already has. The guard
+ * lives at write time, against the filesystem, so it holds for every path
+ * that reaches writeTests (generation, healing) and for files the prompt's
+ * existing-tests list never saw (large files, other extensions). A file this
+ * run wrote (`owned`) may be rewritten — that is how healing works.
+ */
+export interface ProtectExisting {
+    /** Absolute paths written by this run; rewriting those is fine. */
+    owned: Set<string>;
+    /** Collisions with files that were already in the repo, for the PR body. */
+    renamed: RenamedTest[];
+}
+export declare function writeTests(tests: GeneratedTest[], workDir: string, testDir?: string, protect?: ProtectExisting): Promise<string[]>;
 export declare function runTests(tests: GeneratedTest[], config: ActionConfig, workDir: string): Promise<TestResult[]>;
 export declare function cleanupTests(filePaths: string[]): void;

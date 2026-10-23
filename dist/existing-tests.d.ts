@@ -12,3 +12,7 @@ export declare function readExistingTests(workDir: string, testDir: string): Exi
  * Each string = "// filename: login.spec.ts\n{code}"
  */
 export declare function formatExistingTestsForAPI(tests: ExistingTest[]): string[];
+export interface RenamedTest {
+    from: string;
+    to: string;
+}

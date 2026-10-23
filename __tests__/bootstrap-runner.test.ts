@@ -11,7 +11,10 @@ jest.mock('@actions/core');
 jest.mock('../src/git-ops');
 jest.mock('../src/test-runner');
 jest.mock('../src/self-healer');
-jest.mock('../src/existing-tests');
+jest.mock('../src/existing-tests', () => ({
+  ...jest.requireActual('../src/existing-tests'),
+  readExistingTests: jest.fn(),
+}));
 jest.mock('../src/bootstrap-context', () => ({
   parseJourneys: (s: string) => s.split('\n').filter(Boolean),
   fetchPages: jest.fn().mockResolvedValue([]),
@@ -174,6 +177,35 @@ describe('runBootstrap — auth scaffold + config commit', () => {
     expect(out.testsPassed).toBe(0);
     // nothing passed → no PR; the relabel is observable through the PR body path, covered above
     expect(gitOps.createBootstrapPR).not.toHaveBeenCalled();
+  });
+
+  it('passes the protection record to writeTests and healing, and reports renamed files in the PR', async () => {
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
+    (llm.bootstrapTests as jest.Mock).mockResolvedValueOnce([{ ...authedSpec }]); // fresh object: the guard mutates filename
+    // Emulate the write-time guard renaming the colliding file.
+    (testRunner.writeTests as jest.Mock).mockImplementationOnce(async (tests, _w, _d, protect) => {
+      tests[0].filename = 'expenses-bootstrap.spec.ts';
+      protect.renamed.push({ from: 'expenses.spec.ts', to: 'expenses-bootstrap.spec.ts' });
+      return ['/work/e2e/expenses-bootstrap.spec.ts'];
+    });
+    (testRunner.runTests as jest.Mock).mockResolvedValue([{ filename: 'expenses-bootstrap.spec.ts', passed: true, duration: 1 }]);
+    await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    const protect = (testRunner.writeTests as jest.Mock).mock.calls[0][3];
+    expect(protect).toEqual(expect.objectContaining({ owned: expect.any(Set), renamed: expect.any(Array) }));
+    const body: string = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][5];
+    expect(body).toContain('Kept your existing tests');
+    expect(body).toContain('`expenses.spec.ts` (yours) → `expenses-bootstrap.spec.ts` (generated)');
+  });
+
+  it('hands the same protection record to the healer so heals cannot overwrite either', async () => {
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
+    (testRunner.runTests as jest.Mock).mockResolvedValue([{ filename: 'expenses.spec.ts', passed: false, duration: 1, error: 'boom' }]);
+    await runBootstrap({ ...config, maxRetries: 1 }, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    const protectToWrite = (testRunner.writeTests as jest.Mock).mock.calls[0][3];
+    const protectToHeal = (healer.healFailedTests as jest.Mock).mock.calls[0][5];
+    expect(protectToHeal).toBe(protectToWrite);
   });
 
   it('drops a model-generated file named auth.setup.ts', async () => {

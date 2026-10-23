@@ -117,7 +117,7 @@ export function buildBootstrapPrompt(
 
   if (existingTests && existingTests.length > 0) {
     parts.push(
-      '## Existing Tests\nDo not duplicate coverage; match these conventions:\n```\n' +
+      '## Existing Tests\nThese are already committed and will NOT be overwritten. Do not generate a test for a journey they already cover, and never reuse one of their filenames; match their conventions:\n```\n' +
         existingTests.join('\n---\n') +
         '\n```\n',
     );

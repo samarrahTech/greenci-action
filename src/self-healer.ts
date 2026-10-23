@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
-import { runTests, writeTests } from './test-runner';
+import { runTests, writeTests, type ProtectExisting } from './test-runner';
 import { classifyAuthFailure, hasTestCredentials, type AuthFailureKind } from './auth-scaffold';
 
 export interface HealingOutcome {
@@ -17,7 +17,8 @@ export async function healFailedTests(
   context: ChangeContext,
   config: ActionConfig,
   llmClient: ILLMClient,
-  workDir: string
+  workDir: string,
+  protect?: ProtectExisting,
 ): Promise<HealingOutcome> {
   const healed: GeneratedTest[] = [];
   const results: TestResult[] = [];
@@ -74,8 +75,12 @@ export async function healFailedTests(
           break;
         }
 
+        // A heal rewrites THIS file: the API's filename echo is not trusted,
+        // or a renamed bootstrap spec could come back under the customer's
+        // original name and overwrite it.
+        healedTest.filename = currentTest.filename;
         // Write and run the healed test
-        await writeTests([healedTest], workDir, config.testDir);
+        await writeTests([healedTest], workDir, config.testDir, protect);
         const [healedResult] = await runTests([healedTest], config, workDir);
 
         if (healedResult.passed) {
