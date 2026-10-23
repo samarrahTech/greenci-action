@@ -11,7 +11,10 @@ jest.mock('@actions/core');
 jest.mock('../src/git-ops');
 jest.mock('../src/test-runner');
 jest.mock('../src/self-healer');
-jest.mock('../src/existing-tests');
+jest.mock('../src/existing-tests', () => ({
+  ...jest.requireActual('../src/existing-tests'),
+  readExistingTests: jest.fn(),
+}));
 jest.mock('../src/bootstrap-context', () => ({
   parseJourneys: (s: string) => s.split('\n').filter(Boolean),
   fetchPages: jest.fn().mockResolvedValue([]),
@@ -174,6 +177,19 @@ describe('runBootstrap — auth scaffold + config commit', () => {
     expect(out.testsPassed).toBe(0);
     // nothing passed → no PR; the relabel is observable through the PR body path, covered above
     expect(gitOps.createBootstrapPR).not.toHaveBeenCalled();
+  });
+
+  it('writes a generated spec under a new name when the repo already has that file, and says so in the PR', async () => {
+    (existingTests.readExistingTests as jest.Mock).mockReturnValue([{ filename: 'expenses.spec.ts', code: 'theirs' }]);
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
+    (testRunner.runTests as jest.Mock).mockResolvedValue([{ filename: 'expenses-bootstrap.spec.ts', passed: true, duration: 1 }]);
+    await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    const written = (testRunner.writeTests as jest.Mock).mock.calls[0][0];
+    expect(written.map((t: { filename: string }) => t.filename)).toEqual(['expenses-bootstrap.spec.ts']);
+    const body: string = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][5];
+    expect(body).toContain('Kept your existing tests');
+    expect(body).toContain('`expenses.spec.ts` (yours) → `expenses-bootstrap.spec.ts` (generated)');
   });
 
   it('drops a model-generated file named auth.setup.ts', async () => {

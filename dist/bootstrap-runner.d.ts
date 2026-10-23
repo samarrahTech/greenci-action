@@ -1,5 +1,6 @@
 import { ActionConfig, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
 import { type AuthFailureKind } from './auth-scaffold';
+import { type RenamedTest } from './existing-tests';
 import { type AuthSessionStatus } from './test-runner';
 export interface BootstrapOutcome {
     testsGenerated: number;
@@ -30,4 +31,5 @@ export declare function buildBootstrapPRBody(journeys: string[], passed: TestRes
     withAuth: boolean;
     authSetupStatus?: AuthSessionStatus;
     authSetupOutput?: string;
+    renamed?: RenamedTest[];
 }): string;

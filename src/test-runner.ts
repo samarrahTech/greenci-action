@@ -25,11 +25,16 @@ export async function ensurePlaywright(workDir: string): Promise<boolean> {
     installed = true;
   }
 
+  // This step is pure runner time (apt + browser download) and has ranged
+  // from ~1 to ~10 minutes on GitHub-hosted runners — log it so a slow run
+  // is attributable at a glance.
+  const started = Date.now();
   core.info('🌐 Ensuring Chromium is installed for Playwright...');
   await exec.exec('npx', ['playwright', 'install', '--with-deps', 'chromium'], {
     cwd: workDir,
     silent: true,
   });
+  core.info(`🌐 Chromium ready (${Math.round((Date.now() - started) / 1000)}s)`);
 
   return installed;
 }

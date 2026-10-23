@@ -36803,7 +36803,7 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     }
     const existing = (0, existing_tests_1.readExistingTests)(workDir, config.testDir);
     const existingTests = existing.length > 0 ? (0, existing_tests_1.formatExistingTestsForAPI)(existing) : undefined;
-    const generatedTests = (await llmClient.bootstrapTests(journeys, pages, config, existingTests)).filter((t) => {
+    const rawTests = (await llmClient.bootstrapTests(journeys, pages, config, existingTests)).filter((t) => {
         // The login setup is ours (or the customer's), never model output: a
         // generated file under that name would otherwise be run as the sign-in
         // step and win over the template.
@@ -36813,6 +36813,12 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
         }
         return true;
     });
+    // Never rewrite a spec the customer already has (see avoidOverwritingExisting).
+    const dedup = (0, existing_tests_1.avoidOverwritingExisting)(rawTests, existing, config.testDir);
+    const generatedTests = dedup.tests;
+    for (const r of dedup.renamed) {
+        core.warning(`✋ ${r.from} already exists in this repo — writing the generated test as ${r.to} instead of overwriting it`);
+    }
     core.info(`Generated ${generatedTests.length} test file(s)`);
     if (generatedTests.length === 0) {
         return { testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, prUrl: null };
@@ -36900,6 +36906,7 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
             withAuth,
             authSetupStatus: authSession?.status,
             authSetupOutput: authSession?.output,
+            renamed: dedup.renamed,
         });
         const result = await (0, git_ops_1.createBootstrapPR)(token, repo.owner, repo.repo, commitFiles, workDir, body);
         prUrl = result.prUrl;
@@ -36936,6 +36943,12 @@ function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, s
             body += `- \`${bug.filename}\` — ${bug.reasoning}\n`;
         }
         body += '\n';
+    }
+    const renamedCommitted = (setup.renamed ?? []).filter((r) => passed.some((p) => p.filename === r.to));
+    if (renamedCommitted.length > 0) {
+        body += '### ✋ Kept your existing tests\n';
+        body += 'These journeys produced a file with the same name as a test already in your repo. GreenCI never overwrites your tests, so the new one was committed alongside it. Diff the pair and keep the one you prefer:\n\n';
+        body += renamedCommitted.map((r) => `- \`${r.from}\` (yours) → \`${r.to}\` (generated)`).join('\n') + '\n\n';
     }
     const authNames = new Set(setup.authBlocked.map((a) => a.filename));
     const otherFailed = failed.filter((f) => !authNames.has(f.filename));
@@ -37644,6 +37657,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.readExistingTests = readExistingTests;
 exports.formatExistingTestsForAPI = formatExistingTestsForAPI;
+exports.avoidOverwritingExisting = avoidOverwritingExisting;
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
 const MAX_FILE_SIZE = 50 * 1024; // 50KB
@@ -37697,6 +37711,42 @@ function scanDirectory(dir, rootDir, results) {
  */
 function formatExistingTestsForAPI(tests) {
     return tests.map((t) => `// filename: ${t.filename}\n${t.code}`);
+}
+/**
+ * Bootstrap must never rewrite a test the customer already has. The model is
+ * shown the existing suite and told to add, not replace — but it still reuses
+ * a committed filename often enough (TME-web PR #25 rewrote auth-login.spec.ts)
+ * that the guarantee has to live here: a generated file whose name is already
+ * in the repo is written under `<stem>-bootstrap.spec.ts` instead, and the PR
+ * says so, so the owner can diff the two and keep one.
+ */
+function avoidOverwritingExisting(tests, existing, testDir) {
+    const taken = new Set(existing.map((e) => normalise(e.filename, testDir)));
+    const renamed = [];
+    const out = tests.map((t) => {
+        const rel = normalise(t.filename, testDir);
+        if (!taken.has(rel)) {
+            taken.add(rel);
+            return t;
+        }
+        const m = rel.match(/^(.*?)(\.(?:spec|test)\.(?:ts|js|mjs))$/);
+        const stem = m ? m[1] : rel.replace(/\.[^.]+$/, '');
+        const ext = m ? m[2] : rel.slice(stem.length);
+        let candidate = `${stem}-bootstrap${ext}`;
+        for (let n = 2; taken.has(candidate); n++)
+            candidate = `${stem}-bootstrap-${n}${ext}`;
+        taken.add(candidate);
+        renamed.push({ from: rel, to: candidate });
+        return { ...t, filename: candidate };
+    });
+    return { tests: out, renamed };
+}
+function normalise(filename, testDir) {
+    let f = filename.replace(/\\/g, '/').replace(/^\.\//, '');
+    const prefix = testDir.replace(/\\/g, '/').replace(/\/$/, '') + '/';
+    if (f.startsWith(prefix))
+        f = f.slice(prefix.length);
+    return f;
 }
 
 
@@ -38965,7 +39015,7 @@ function buildBootstrapPrompt(journeys, pages, baseUrl, existingTests) {
         }
     }
     if (existingTests && existingTests.length > 0) {
-        parts.push('## Existing Tests\nDo not duplicate coverage; match these conventions:\n```\n' +
+        parts.push('## Existing Tests\nThese are already committed and will NOT be overwritten. Do not generate a test for a journey they already cover, and never reuse one of their filenames; match their conventions:\n```\n' +
             existingTests.join('\n---\n') +
             '\n```\n');
     }
@@ -40035,11 +40085,16 @@ async function ensurePlaywright(workDir) {
         });
         installed = true;
     }
+    // This step is pure runner time (apt + browser download) and has ranged
+    // from ~1 to ~10 minutes on GitHub-hosted runners — log it so a slow run
+    // is attributable at a glance.
+    const started = Date.now();
     core.info('🌐 Ensuring Chromium is installed for Playwright...');
     await exec.exec('npx', ['playwright', 'install', '--with-deps', 'chromium'], {
         cwd: workDir,
         silent: true,
     });
+    core.info(`🌐 Chromium ready (${Math.round((Date.now() - started) / 1000)}s)`);
     return installed;
 }
 /**

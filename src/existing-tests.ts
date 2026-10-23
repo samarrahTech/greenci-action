@@ -63,3 +63,48 @@ function scanDirectory(dir: string, rootDir: string, results: ExistingTest[]): v
 export function formatExistingTestsForAPI(tests: ExistingTest[]): string[] {
   return tests.map((t) => `// filename: ${t.filename}\n${t.code}`);
 }
+
+export interface RenamedTest {
+  from: string;
+  to: string;
+}
+
+/**
+ * Bootstrap must never rewrite a test the customer already has. The model is
+ * shown the existing suite and told to add, not replace — but it still reuses
+ * a committed filename often enough (TME-web PR #25 rewrote auth-login.spec.ts)
+ * that the guarantee has to live here: a generated file whose name is already
+ * in the repo is written under `<stem>-bootstrap.spec.ts` instead, and the PR
+ * says so, so the owner can diff the two and keep one.
+ */
+export function avoidOverwritingExisting<T extends { filename: string }>(
+  tests: T[],
+  existing: ExistingTest[],
+  testDir: string,
+): { tests: T[]; renamed: RenamedTest[] } {
+  const taken = new Set(existing.map((e) => normalise(e.filename, testDir)));
+  const renamed: RenamedTest[] = [];
+  const out = tests.map((t) => {
+    const rel = normalise(t.filename, testDir);
+    if (!taken.has(rel)) {
+      taken.add(rel);
+      return t;
+    }
+    const m = rel.match(/^(.*?)(\.(?:spec|test)\.(?:ts|js|mjs))$/);
+    const stem = m ? m[1] : rel.replace(/\.[^.]+$/, '');
+    const ext = m ? m[2] : rel.slice(stem.length);
+    let candidate = `${stem}-bootstrap${ext}`;
+    for (let n = 2; taken.has(candidate); n++) candidate = `${stem}-bootstrap-${n}${ext}`;
+    taken.add(candidate);
+    renamed.push({ from: rel, to: candidate });
+    return { ...t, filename: candidate };
+  });
+  return { tests: out, renamed };
+}
+
+function normalise(filename: string, testDir: string): string {
+  let f = filename.replace(/\\/g, '/').replace(/^\.\//, '');
+  const prefix = testDir.replace(/\\/g, '/').replace(/\/$/, '') + '/';
+  if (f.startsWith(prefix)) f = f.slice(prefix.length);
+  return f;
+}
