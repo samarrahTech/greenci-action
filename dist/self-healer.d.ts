@@ -1,4 +1,5 @@
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
+import { type ProtectExisting } from './test-runner';
 import { type AuthFailureKind } from './auth-scaffold';
 export interface HealingOutcome {
     healed: GeneratedTest[];
@@ -15,4 +16,4 @@ export interface HealingOutcome {
 export declare function healFailedTests(failedTests: {
     test: GeneratedTest;
     result: TestResult;
-}[], context: ChangeContext, config: ActionConfig, llmClient: ILLMClient, workDir: string): Promise<HealingOutcome>;
+}[], context: ChangeContext, config: ActionConfig, llmClient: ILLMClient, workDir: string, protect?: ProtectExisting): Promise<HealingOutcome>;

@@ -3,8 +3,8 @@ import * as path from 'path';
 import { ActionConfig, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
 import { parseJourneys, fetchPages } from './bootstrap-context';
 import { needsAuthScaffold, writeAuthScaffold, loginPathFromJourneys, AUTH_SETUP_FILENAME, type AuthFailureKind } from './auth-scaffold';
-import { readExistingTests, formatExistingTestsForAPI, avoidOverwritingExisting, type RenamedTest } from './existing-tests';
-import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, writeTests, type AuthSessionResult, type AuthSessionStatus } from './test-runner';
+import { readExistingTests, formatExistingTestsForAPI, type RenamedTest } from './existing-tests';
+import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, writeTests, type AuthSessionResult, type AuthSessionStatus, type ProtectExisting } from './test-runner';
 import { healFailedTests } from './self-healer';
 import { createBootstrapPR } from './git-ops';
 import { resolveTestPath } from './safe-paths';
@@ -48,7 +48,7 @@ export async function runBootstrap(
   const existing = readExistingTests(workDir, config.testDir);
   const existingTests = existing.length > 0 ? formatExistingTestsForAPI(existing) : undefined;
 
-  const rawTests = (await llmClient.bootstrapTests(journeys, pages, config, existingTests)).filter((t) => {
+  const generatedTests = (await llmClient.bootstrapTests(journeys, pages, config, existingTests)).filter((t) => {
     // The login setup is ours (or the customer's), never model output: a
     // generated file under that name would otherwise be run as the sign-in
     // step and win over the template.
@@ -58,18 +58,14 @@ export async function runBootstrap(
     }
     return true;
   });
-  // Never rewrite a spec the customer already has (see avoidOverwritingExisting).
-  const dedup = avoidOverwritingExisting(rawTests, existing, config.testDir);
-  const generatedTests = dedup.tests;
-  for (const r of dedup.renamed) {
-    core.warning(`✋ ${r.from} already exists in this repo — writing the generated test as ${r.to} instead of overwriting it`);
-  }
   core.info(`Generated ${generatedTests.length} test file(s)`);
   if (generatedTests.length === 0) {
     return { testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, prUrl: null };
   }
 
-  await writeTests(generatedTests, workDir, config.testDir);
+  // Never rewrite a spec the customer already has (see ProtectExisting).
+  const protect: ProtectExisting = { owned: new Set(), renamed: [] };
+  await writeTests(generatedTests, workDir, config.testDir, protect);
 
   // Authenticated journeys: commit a ready-to-run login setup so the customer
   // only has to add two secrets (auth architecture option B).
@@ -111,7 +107,7 @@ export async function runBootstrap(
   // deterministic and free — it decides what the PR tells the customer.
   if (failedTests.length > 0) {
     if (config.maxRetries > 0) core.info(`🔧 Healing ${failedTests.length} failing bootstrap test(s)...`);
-    const healing = await healFailedTests(failedTests, emptyChangeContext(), config, llmClient, workDir);
+    const healing = await healFailedTests(failedTests, emptyChangeContext(), config, llmClient, workDir, protect);
     healed = healing.healed;
     healedResults = healing.results;
     suspectedBugs = healing.suspectedBugs;
@@ -162,7 +158,7 @@ export async function runBootstrap(
       withAuth,
       authSetupStatus: authSession?.status,
       authSetupOutput: authSession?.output,
-      renamed: dedup.renamed,
+      renamed: protect.renamed,
     });
     const result = await createBootstrapPR(token, repo.owner, repo.repo, commitFiles, workDir, body);
     prUrl = result.prUrl;

@@ -10,6 +10,16 @@
 export declare class UnsafeTestPathError extends Error {
     constructor(filename: string, reason: string);
 }
+/**
+ * Suffixes a generated Playwright test is allowed to have.
+ *
+ * Must stay in step with existing-tests.ts, which harvests BOTH `.spec.*` and
+ * `.test.*`, and with the prompt that tells the model to reuse an existing
+ * filename when updating a test. Accepting only `.spec.*` here silently drops
+ * every update in a repo whose e2e files are named `*.test.ts` — which is also
+ * Playwright's default testMatch.
+ */
+export declare const ALLOWED_SUFFIX: RegExp;
 export interface ResolvedTestPath {
     /** Absolute path to write/run, guaranteed inside `<workDir>/<testDir>`. */
     absolute: string;

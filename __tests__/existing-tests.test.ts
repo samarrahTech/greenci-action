@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { readExistingTests, formatExistingTestsForAPI, avoidOverwritingExisting } from '../src/existing-tests';
+import { readExistingTests, formatExistingTestsForAPI } from '../src/existing-tests';
 
 describe('existing-tests', () => {
   const tmpDir = path.join(__dirname, '__tmp_existing_tests__');
@@ -76,38 +76,3 @@ describe('existing-tests', () => {
   });
 });
 
-// Bootstrap rewrote committed specs (TME-web PR #25): a generated file that
-// collides with an existing one must be written under a new name instead.
-describe('avoidOverwritingExisting', () => {
-  const existing = [
-    { filename: 'auth-login.spec.ts', code: '' },
-    { filename: 'auth-login-bootstrap.spec.ts', code: '' },
-    { filename: 'nested/cart.test.ts', code: '' },
-  ];
-
-  it('leaves non-colliding names alone', () => {
-    const r = avoidOverwritingExisting([{ filename: 'checkout.spec.ts' }], existing, 'e2e');
-    expect(r.tests[0].filename).toBe('checkout.spec.ts');
-    expect(r.renamed).toEqual([]);
-  });
-
-  it('renames a collision and skips names that are also taken', () => {
-    const r = avoidOverwritingExisting([{ filename: 'auth-login.spec.ts' }], existing, 'e2e');
-    expect(r.tests[0].filename).toBe('auth-login-bootstrap-2.spec.ts');
-    expect(r.renamed).toEqual([{ from: 'auth-login.spec.ts', to: 'auth-login-bootstrap-2.spec.ts' }]);
-  });
-
-  it('normalises a testDir prefix and nested paths before comparing', () => {
-    const r = avoidOverwritingExisting([{ filename: 'e2e/nested/cart.test.ts' }], existing, 'e2e');
-    expect(r.tests[0].filename).toBe('nested/cart-bootstrap.test.ts');
-  });
-
-  it('does not let two generated files collide with each other after renaming', () => {
-    const r = avoidOverwritingExisting(
-      [{ filename: 'auth-login.spec.ts' }, { filename: 'auth-login.spec.ts' }],
-      [{ filename: 'auth-login.spec.ts', code: '' }],
-      'e2e',
-    );
-    expect(r.tests.map((t) => t.filename)).toEqual(['auth-login-bootstrap.spec.ts', 'auth-login-bootstrap-2.spec.ts']);
-  });
-});
