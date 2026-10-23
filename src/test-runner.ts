@@ -5,6 +5,7 @@ import * as path from 'path';
 import { ActionConfig, GeneratedTest, TestResult } from './types';
 import { resolveTestPath, assertSafeToWrite } from './safe-paths';
 import { buildTestEnv } from './test-env';
+import { AUTH_SETUP_FILENAME, STORAGE_STATE_PATH, hasTestCredentials } from './auth-scaffold';
 
 /**
  * Zero-test repos (the bootstrap audience) usually have neither
@@ -72,6 +73,98 @@ export default defineConfig({
   fs.writeFileSync(path.join(workDir, 'playwright.config.ts'), config, 'utf-8');
   core.info(`⚙️ No Playwright config found — wrote a minimal playwright.config.ts (baseURL: ${baseUrl})`);
   return true;
+}
+
+/**
+ * One Playwright invocation for a single file, with the action's credentials
+ * stripped from the child environment (test-env.ts). Both the suite run and the
+ * sign-in pass go through here so the env invariant lives in one place.
+ */
+export async function runPlaywrightFile(
+  filter: string,
+  workDir: string,
+  config: ActionConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  let stdout = '';
+  let stderr = '';
+  const exitCode = await exec.exec('npx', ['playwright', 'test', filter, '--reporter=line'], {
+    cwd: workDir,
+    // Model-authored code runs here — see test-env.ts. Never spread
+    // process.env directly into this call.
+    env: buildTestEnv(env, {
+      BASE_URL: config.baseUrl,
+      CI: 'true',
+    }),
+    silent: true,
+    listeners: {
+      stdout: (data) => {
+        stdout += data.toString();
+      },
+      stderr: (data) => {
+        stderr += data.toString();
+      },
+    },
+    ignoreReturnCode: true,
+  });
+  return { exitCode, stdout, stderr };
+}
+
+export type AuthSessionStatus = 'ok' | 'skipped' | 'not-wired' | 'failed' | 'no-session-file';
+export interface AuthSessionResult {
+  status: AuthSessionStatus;
+  /** Playwright output, for the failed / not-wired / no-session-file cases. */
+  output?: string;
+}
+
+/**
+ * Sign in once before the suite runs. Specs are executed one file at a time
+ * (see runTests), so Playwright project dependencies only produce the session
+ * file when the customer's own config routes THAT spec through a project that
+ * depends on the setup. A repo that already had a config (TME-web: authed specs
+ * listed by name) never wrote playwright/.auth/user.json for a newly generated
+ * spec, which then failed with ENOENT and was reported as "add the secrets".
+ * Running the setup file explicitly makes the session exist regardless of how
+ * the config is wired; the setup's own session reuse keeps a second run cheap.
+ */
+export async function ensureAuthSession(
+  workDir: string,
+  config: ActionConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<AuthSessionResult> {
+  if (!hasTestCredentials(env)) {
+    core.info('🔐 TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will be reported as needing credentials');
+    return { status: 'skipped' };
+  }
+
+  core.info(`🔐 Signing in once via ${AUTH_SETUP_FILENAME} so authenticated specs have a session...`);
+  const { exitCode, stdout, stderr } = await runPlaywrightFile(AUTH_SETUP_FILENAME, workDir, config, env);
+  const output = [stdout, stderr].filter(Boolean).join('\n');
+
+  if (exitCode !== 0) {
+    // Playwright's own "nothing matched the filter" error, at line start, so a
+    // setup (or the app it drives) merely printing those words is not mistaken
+    // for a wiring problem.
+    if (/^\s*Error: No tests found/im.test(output)) {
+      core.warning(
+        `⚠️ No Playwright project in this repo's config runs ${AUTH_SETUP_FILENAME} — authenticated specs cannot get a session (see PR instructions)`,
+      );
+      return { status: 'not-wired', output };
+    }
+    core.warning(`❌ The login setup (${AUTH_SETUP_FILENAME}) could not sign in — authenticated specs will be reported as blocked`);
+    core.info(`   Setup output:\n${output.substring(0, 800)}`);
+    return { status: 'failed', output };
+  }
+  // Exit 0 is not proof of a session: a kept customer setup may save
+  // elsewhere, or skip on a condition of its own. The file is the contract.
+  if (!fs.existsSync(path.join(workDir, STORAGE_STATE_PATH))) {
+    core.warning(
+      `⚠️ ${AUTH_SETUP_FILENAME} finished without writing ${STORAGE_STATE_PATH} — authenticated specs cannot get a session (see PR instructions)`,
+    );
+    return { status: 'no-session-file', output };
+  }
+  core.info('✅ Signed in — session saved for the authenticated specs');
+  return { status: 'ok' };
 }
 
 export async function writeTests(tests: GeneratedTest[], workDir: string, testDir: string = 'e2e'): Promise<string[]> {
@@ -142,31 +235,10 @@ export async function runTests(
     }
     const startTime = Date.now();
 
-    let stdout = '';
-    let stderr = '';
-
     try {
       // Pass just the filename as a regex filter — Playwright matches against absolute paths
       const basename = path.basename(filePath);
-      const exitCode = await exec.exec('npx', ['playwright', 'test', basename, '--reporter=line'], {
-        cwd: workDir,
-        // Model-authored code runs here — see test-env.ts. Never spread
-        // process.env directly into this call.
-        env: buildTestEnv(process.env, {
-          BASE_URL: config.baseUrl,
-          CI: 'true',
-        }),
-        silent: true,
-        listeners: {
-          stdout: (data) => {
-            stdout += data.toString();
-          },
-          stderr: (data) => {
-            stderr += data.toString();
-          },
-        },
-        ignoreReturnCode: true,
-      });
+      const { exitCode, stdout, stderr } = await runPlaywrightFile(basename, workDir, config);
 
       const duration = Date.now() - startTime;
       const passed = exitCode === 0;

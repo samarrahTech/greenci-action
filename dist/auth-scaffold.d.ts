@@ -18,19 +18,38 @@ export declare function loginPathFromJourneys(journeys: string[]): string;
  * customer can adjust, and a failed run self-reports clearly.
  */
 export declare function authSetupSource(loginPath: string): string;
-/** Write the setup file into the test dir; returns its absolute path. */
-export declare function writeAuthScaffold(workDir: string, testDir: string, loginPath: string): string;
+export interface AuthScaffoldResult {
+    /** Absolute path of the setup file (ours or the customer's). */
+    path: string;
+    /** True when this run wrote the file; false when the repo already had one. */
+    created: boolean;
+}
+/**
+ * Write the setup file into the test dir — unless the repo already has one.
+ * The committed file is the customer's ("this file is yours"): a re-run must
+ * never overwrite their edits (a hardened credentials guard, custom locators).
+ */
+export declare function writeAuthScaffold(workDir: string, testDir: string, loginPath: string): AuthScaffoldResult;
+/** Are the customer's test-user credentials present in this environment? */
+export declare function hasTestCredentials(env?: NodeJS.ProcessEnv): boolean;
 /**
  * Deterministic pre-classification of auth-blocked failures — these must
  * never reach the LLM healer: no selector fix can conjure a session, and
- * every attempt costs an LLM call. Two families:
- *  1. no session was ever produced (missing storageState / credentials unset)
- *  2. the setup project itself failed, so dependent specs never ran — the
- *     real-world case (a broken or slow login) that previously burned
- *     maxRetries heals on every dependent spec.
+ * every attempt costs an LLM call. Three families:
+ *  1. missing-session: no session file and no credentials — the customer has
+ *     not added the secrets yet.
+ *  2. setup-not-run: no session file although the credentials ARE set — the
+ *     login setup never executed for this spec (the repo's own config does not
+ *     route it through a setup-dependent project). Telling the customer to
+ *     "add the secrets" here is wrong; they need the config wiring.
+ *  3. setup-failed: the setup project ran and could not sign in, so dependent
+ *     specs never ran — the real-world case (a broken or slow login) that
+ *     previously burned maxRetries heals on every dependent spec.
  */
-export type AuthFailureKind = 'missing-session' | 'setup-failed';
+export type AuthFailureKind = 'missing-session' | 'setup-not-run' | 'setup-failed';
 /** Which auth family (if any) a failure belongs to — null means "not auth". */
-export declare function classifyAuthFailure(error: string | undefined): AuthFailureKind | null;
+export declare function classifyAuthFailure(error: string | undefined, opts?: {
+    hasCredentials?: boolean;
+}): AuthFailureKind | null;
 /** Convenience wrapper: is this failure auth-related at all? */
 export declare function isAuthSetupFailure(error: string | undefined): boolean;

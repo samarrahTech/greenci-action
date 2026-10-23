@@ -6,11 +6,12 @@ import {
   authSetupSource,
   isAuthSetupFailure,
   writeAuthScaffold,
+  hasTestCredentials,
 } from '../src/auth-scaffold';
 
 jest.mock('fs', () => {
   const actual = jest.requireActual('fs');
-  return { ...actual, mkdirSync: jest.fn(), writeFileSync: jest.fn() };
+  return { ...actual, existsSync: jest.fn(), mkdirSync: jest.fn(), writeFileSync: jest.fn() };
 });
 
 describe('needsAuthScaffold', () => {
@@ -42,10 +43,25 @@ describe('authSetupSource', () => {
 });
 
 describe('writeAuthScaffold', () => {
-  it('writes auth.setup.ts into the test dir', () => {
-    const p = writeAuthScaffold('/work', 'e2e', '/login');
-    expect(p).toContain('e2e/auth.setup.ts');
+  beforeEach(() => jest.clearAllMocks());
+
+  it('writes auth.setup.ts into the test dir when none exists', () => {
+    (fs.existsSync as jest.Mock).mockReturnValueOnce(false);
+    const r = writeAuthScaffold('/work', 'e2e', '/login');
+    expect(r.path).toContain('e2e/auth.setup.ts');
+    expect(r.created).toBe(true);
     expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('auth.setup.ts'), expect.stringContaining('TEST_USER_EMAIL'), 'utf-8');
+  });
+
+  // GC-043: the customer's auth.setup.ts is theirs ("this file is yours") — a
+  // bootstrap re-run must never overwrite their edits (TME-web lost its
+  // fail-loud credentials guard in PR #24).
+  it('keeps an existing auth.setup.ts untouched', () => {
+    (fs.existsSync as jest.Mock).mockReturnValueOnce(true);
+    const r = writeAuthScaffold('/work', 'e2e', '/login');
+    expect(r.path).toContain('e2e/auth.setup.ts');
+    expect(r.created).toBe(false);
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
   });
 });
 
@@ -104,6 +120,27 @@ describe('classifyAuthFailure families', () => {
     expect(classifyAuthFailure("ENOENT: no such file or directory, open 'playwright/.auth/user.json'")).toBe('missing-session');
     expect(classifyAuthFailure('  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n TimeoutError\n 3 did not run')).toBe('setup-failed');
     expect(classifyAuthFailure('strict mode violation')).toBeNull();
+  });
+
+  // GC-044: with the secrets present, a missing session file means the setup
+  // never ran for this spec — telling the customer to "add the secrets" is wrong.
+  it('reports setup-not-run instead of missing-session when credentials are present', () => {
+    const enoent = "Error reading storage state from playwright/.auth/user.json:\nENOENT: no such file or directory, open 'playwright/.auth/user.json'";
+    expect(classifyAuthFailure(enoent, { hasCredentials: true })).toBe('setup-not-run');
+    expect(classifyAuthFailure(enoent, { hasCredentials: false })).toBe('missing-session');
+    expect(classifyAuthFailure(enoent)).toBe('missing-session');
+    // a genuinely failing setup is still setup-failed either way
+    expect(classifyAuthFailure('  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n TimeoutError\n 3 did not run', { hasCredentials: true })).toBe('setup-failed');
+    expect(isAuthSetupFailure(enoent)).toBe(true);
+  });
+});
+
+describe('hasTestCredentials', () => {
+  it('needs both the email and the password', () => {
+    expect(hasTestCredentials({ TEST_USER_EMAIL: 'a@b.c', TEST_USER_PASSWORD: 'x' })).toBe(true);
+    expect(hasTestCredentials({ TEST_USER_EMAIL: 'a@b.c' })).toBe(false);
+    expect(hasTestCredentials({ TEST_USER_PASSWORD: 'x' })).toBe(false);
+    expect(hasTestCredentials({})).toBe(false);
   });
 });
 

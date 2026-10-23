@@ -1,4 +1,6 @@
-import { ActionConfig, ILLMClient } from './types';
+import { ActionConfig, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
+import { type AuthFailureKind } from './auth-scaffold';
+import { type AuthSessionStatus } from './test-runner';
 export interface BootstrapOutcome {
     testsGenerated: number;
     testsPassed: number;
@@ -15,3 +17,17 @@ export declare function runBootstrap(config: ActionConfig, llmClient: ILLMClient
     owner: string;
     repo: string;
 }): Promise<BootstrapOutcome>;
+export declare function buildBootstrapPRBody(journeys: string[], passed: TestResult[], failed: TestResult[], healed: GeneratedTest[], suspectedBugs: SuspectedBug[], setup: {
+    installedPlaywright: boolean;
+    createdConfig: boolean;
+    baseUrl: string;
+    testDir: string;
+    authBlocked: {
+        filename: string;
+        error?: string;
+        kind: AuthFailureKind;
+    }[];
+    withAuth: boolean;
+    authSetupStatus?: AuthSessionStatus;
+    authSetupOutput?: string;
+}): string;
