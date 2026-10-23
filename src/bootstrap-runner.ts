@@ -2,9 +2,9 @@ import * as core from '@actions/core';
 import * as path from 'path';
 import { ActionConfig, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
 import { parseJourneys, fetchPages } from './bootstrap-context';
-import { needsAuthScaffold, writeAuthScaffold, loginPathFromJourneys, AUTH_SETUP_FILENAME } from './auth-scaffold';
+import { needsAuthScaffold, writeAuthScaffold, loginPathFromJourneys, AUTH_SETUP_FILENAME, type AuthFailureKind } from './auth-scaffold';
 import { readExistingTests, formatExistingTestsForAPI } from './existing-tests';
-import { ensurePlaywright, ensurePlaywrightConfig, runTests, writeTests } from './test-runner';
+import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, writeTests, type AuthSessionResult, type AuthSessionStatus } from './test-runner';
 import { healFailedTests } from './self-healer';
 import { createBootstrapPR } from './git-ops';
 import { resolveTestPath } from './safe-paths';
@@ -48,7 +48,16 @@ export async function runBootstrap(
   const existing = readExistingTests(workDir, config.testDir);
   const existingTests = existing.length > 0 ? formatExistingTestsForAPI(existing) : undefined;
 
-  const generatedTests = await llmClient.bootstrapTests(journeys, pages, config, existingTests);
+  const generatedTests = (await llmClient.bootstrapTests(journeys, pages, config, existingTests)).filter((t) => {
+    // The login setup is ours (or the customer's), never model output: a
+    // generated file under that name would otherwise be run as the sign-in
+    // step and win over the template.
+    if (path.basename(t.filename) === AUTH_SETUP_FILENAME) {
+      core.warning(`Dropping generated ${t.filename}: ${AUTH_SETUP_FILENAME} is provided by the pipeline`);
+      return false;
+    }
+    return true;
+  });
   core.info(`Generated ${generatedTests.length} test file(s)`);
   if (generatedTests.length === 0) {
     return { testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, prUrl: null };
@@ -60,15 +69,26 @@ export async function runBootstrap(
   // only has to add two secrets (auth architecture option B).
   const withAuth = needsAuthScaffold(generatedTests);
   let authSetupPath: string | null = null;
+  let authSetupCreated = false;
   if (withAuth) {
     const loginPath = loginPathFromJourneys(journeys);
-    authSetupPath = writeAuthScaffold(workDir, config.testDir, loginPath);
-    core.info(`🔐 Authenticated journeys detected — wrote ${config.testDir}/${AUTH_SETUP_FILENAME} (login page: ${loginPath})`);
+    const scaffold = writeAuthScaffold(workDir, config.testDir, loginPath);
+    authSetupPath = scaffold.path;
+    authSetupCreated = scaffold.created;
+    core.info(
+      scaffold.created
+        ? `🔐 Authenticated journeys detected — wrote ${config.testDir}/${AUTH_SETUP_FILENAME} (login page: ${loginPath})`
+        : `🔐 Authenticated journeys detected — keeping your existing ${config.testDir}/${AUTH_SETUP_FILENAME} (not overwritten)`,
+    );
   }
 
   // Zero-test repos won't have Playwright or a config yet — set them up
   const installedPlaywright = await ensurePlaywright(workDir);
   const createdConfig = ensurePlaywrightConfig(workDir, config.baseUrl, config.testDir, withAuth);
+
+  // Specs run one file at a time, so produce the session up front instead of
+  // relying on the customer's config to route each new spec through setup.
+  const authSession: AuthSessionResult | null = withAuth ? await ensureAuthSession(workDir, config) : null;
 
   core.info('🏃 Running the bootstrap suite...');
   const initialResults = await runTests(generatedTests, config, workDir);
@@ -80,14 +100,25 @@ export async function runBootstrap(
   let healed: GeneratedTest[] = [];
   let healedResults: TestResult[] = [];
   let suspectedBugs: SuspectedBug[] = [];
-  let authBlocked: { filename: string; error?: string; kind: 'missing-session' | 'setup-failed' }[] = [];
-  if (failedTests.length > 0 && config.maxRetries > 0) {
-    core.info(`🔧 Healing ${failedTests.length} failing bootstrap test(s)...`);
+  let authBlocked: { filename: string; error?: string; kind: AuthFailureKind }[] = [];
+  // Even with healing disabled (maxRetries 0) the auth classification is
+  // deterministic and free — it decides what the PR tells the customer.
+  if (failedTests.length > 0) {
+    if (config.maxRetries > 0) core.info(`🔧 Healing ${failedTests.length} failing bootstrap test(s)...`);
     const healing = await healFailedTests(failedTests, emptyChangeContext(), config, llmClient, workDir);
     healed = healing.healed;
     healedResults = healing.results;
     suspectedBugs = healing.suspectedBugs;
     authBlocked = healing.authBlocked;
+  }
+
+  // The sign-in pass knows WHY no session exists; the per-spec classifier only
+  // sees the ENOENT. A setup that ran and failed is a sign-in problem, not a
+  // wiring problem — report it as such, with the setup's own output.
+  if (authSession?.status === 'failed') {
+    authBlocked = authBlocked.map((a) =>
+      a.kind === 'setup-not-run' ? { ...a, kind: 'setup-failed' as const, error: authSession.output } : a,
+    );
   }
 
   const allResults = [...initialResults.filter((r) => r.passed), ...healedResults];
@@ -107,8 +138,10 @@ export async function runBootstrap(
     }
   });
   const commitFiles = [...passingFiles];
-  if (withAuth && authSetupPath && passingFiles.length > 0) {
-    commitFiles.push(authSetupPath);
+  if (withAuth && passingFiles.length > 0) {
+    // Only a scaffold THIS run wrote is ours to commit; the customer's own
+    // auth.setup.ts is already in their tree.
+    if (authSetupPath && authSetupCreated) commitFiles.push(authSetupPath);
     if (createdConfig) commitFiles.push(path.join(workDir, 'playwright.config.ts'));
   }
 
@@ -121,6 +154,8 @@ export async function runBootstrap(
       testDir: config.testDir,
       authBlocked,
       withAuth,
+      authSetupStatus: authSession?.status,
+      authSetupOutput: authSession?.output,
     });
     const result = await createBootstrapPR(token, repo.owner, repo.repo, commitFiles, workDir, body);
     prUrl = result.prUrl;
@@ -141,7 +176,7 @@ function emptyChangeContext() {
   return { routes: [], components: [], apiEndpoints: [], modifiedFiles: [], summary: 'bootstrap' };
 }
 
-function buildBootstrapPRBody(
+export function buildBootstrapPRBody(
   journeys: string[],
   passed: TestResult[],
   failed: TestResult[],
@@ -152,8 +187,10 @@ function buildBootstrapPRBody(
     createdConfig: boolean;
     baseUrl: string;
     testDir: string;
-    authBlocked: { filename: string; error?: string; kind: 'missing-session' | 'setup-failed' }[];
+    authBlocked: { filename: string; error?: string; kind: AuthFailureKind }[];
     withAuth: boolean;
+    authSetupStatus?: AuthSessionStatus;
+    authSetupOutput?: string;
   },
 ): string {
   let body = '## 🌱 Foundational E2E suite generated by GreenCI\n\n';
@@ -181,6 +218,7 @@ function buildBootstrapPRBody(
 
   const signInFailed = setup.authBlocked.filter((a) => a.kind === 'setup-failed');
   const needsCreds = setup.authBlocked.filter((a) => a.kind === 'missing-session');
+  const notRun = setup.authBlocked.filter((a) => a.kind === 'setup-not-run');
 
   if (signInFailed.length > 0) {
     body += '### 🔐 ' + signInFailed.length + ' journey(s) blocked: sign-in did not complete\n';
@@ -189,7 +227,32 @@ function buildBootstrapPRBody(
     body += '- The test credentials are wrong, or the account is locked/unverified\n';
     body += '- Your login endpoint is **rate-limiting** the run (CI signs in repeatedly from one IP)\n';
     body += '- Sign-in is genuinely broken — worth checking by hand\n\n';
-    body += 'The exact error is in the workflow log under the `[setup]` project. These tests were **not** rewritten to pass around the problem.\n\n';
+    if (setup.authSetupOutput) {
+      body += 'The sign-in step (“Signing in once via auth.setup.ts” in the workflow log) failed with:\n\n```\n' + setup.authSetupOutput.trim().substring(0, 1200) + '\n```\n\n';
+    } else {
+      body += 'The exact error is in the workflow log under the `[setup]` project. ';
+    }
+    body += 'These tests were **not** rewritten to pass around the problem.\n\n';
+  }
+
+  if (notRun.length > 0) {
+    body += '### 🔐 ' + notRun.length + ' journey(s) blocked: no signed-in session was available\n';
+    body += notRun.map((a) => `- \`${a.filename}\``).join('\n') + '\n\n';
+    body += '`TEST_USER_EMAIL` / `TEST_USER_PASSWORD` are set, but no `playwright/.auth/user.json` session existed when these specs ran.\n\n';
+    if (setup.authSetupStatus === 'no-session-file') {
+      body += 'The login setup (`' + setup.testDir + '/auth.setup.ts`) ran and exited cleanly but did not write `playwright/.auth/user.json` — it saves the session somewhere else, or skips on a condition of its own. ';
+      body += 'Make it end with `await page.context().storageState({ path: \'playwright/.auth/user.json\' })`, or point the specs\' `test.use({ storageState })` at the path it does write.\n\n';
+    } else if (setup.authSetupStatus === 'ok') {
+      body += 'The login setup ran and wrote `playwright/.auth/user.json`, but the specs could not read it. Playwright resolves `storageState` relative to the directory holding `playwright.config.ts`: if your config lives in a subdirectory, save the session relative to that directory (or use an absolute path in both places).\n\n';
+    } else {
+      body += 'The login setup (`' + setup.testDir + '/auth.setup.ts`) did not run before these specs. ';
+      if (setup.authSetupStatus === 'not-wired') {
+        body += 'No project in your `playwright.config.ts` matches `auth.setup.ts`. ';
+      }
+      body += 'Add a `setup` project and make the project that runs these specs depend on it:\n\n';
+      body += '```ts\n  projects: [\n    { name: \'setup\', testMatch: /auth\\.setup\\.ts/ },\n    { name: \'chromium\', dependencies: [\'setup\'] },\n  ],\n```\n\n';
+    }
+    body += 'Then re-run the **GreenCI Bootstrap** workflow — a follow-up PR will include the authenticated journeys.\n\n';
   }
 
   if (needsCreds.length > 0) {

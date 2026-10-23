@@ -1,5 +1,5 @@
 import * as exec from '@actions/exec';
-import { writeTests, runTests, cleanupTests } from '../src/test-runner';
+import { writeTests, runTests, cleanupTests, ensureAuthSession } from '../src/test-runner';
 import { ActionConfig, GeneratedTest } from '../src/types';
 
 jest.mock('@actions/core');
@@ -162,6 +162,101 @@ describe('runTests', () => {
     } finally {
       process.env = restore;
     }
+  });
+});
+
+// GC-042: specs are run one file at a time, so a repo whose own
+// playwright.config does not route the NEW spec through a setup-dependent
+// project never gets playwright/.auth/user.json written. Sign in once up
+// front so the session exists regardless of how the customer's config is wired.
+describe('ensureAuthSession', () => {
+  const withCreds = async <T,>(fn: () => Promise<T>): Promise<T> => {
+    const restore = { ...process.env };
+    process.env.TEST_USER_EMAIL = 'qa@example.com';
+    process.env.TEST_USER_PASSWORD = 'pw';
+    process.env.GITHUB_TOKEN = 'ghs_secret';
+    try {
+      return await fn();
+    } finally {
+      process.env = restore;
+    }
+  };
+  const execWithOutput = (exitCode: number, output: string) =>
+    (exec.exec as jest.Mock).mockImplementation(async (_c: string, _a: string[], opts: { listeners?: { stdout?: (d: Buffer) => void } }) => {
+      opts.listeners?.stdout?.(Buffer.from(output));
+      return exitCode;
+    });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockExistsSync.mockReturnValue(true); // session file present unless a test says otherwise
+  });
+
+  it('is skipped (and runs nothing) when the test credentials are not set', async () => {
+    const restore = { ...process.env };
+    delete process.env.TEST_USER_EMAIL;
+    delete process.env.TEST_USER_PASSWORD;
+    try {
+      const r = await ensureAuthSession('/work', mockConfig);
+      expect(r.status).toBe('skipped');
+      expect(exec.exec).not.toHaveBeenCalled();
+    } finally {
+      process.env = restore;
+    }
+  });
+
+  it('runs the auth setup file once and reports ok on exit 0', async () => {
+    await withCreds(async () => {
+      execWithOutput(0, '1 passed');
+      const r = await ensureAuthSession('/work', mockConfig);
+      expect(r.status).toBe('ok');
+      expect(exec.exec).toHaveBeenCalledWith(
+        'npx',
+        ['playwright', 'test', 'auth.setup.ts', '--reporter=line'],
+        expect.objectContaining({ cwd: '/work', ignoreReturnCode: true }),
+      );
+      const opts = (exec.exec as jest.Mock).mock.calls[0][2];
+      expect(opts.env.TEST_USER_EMAIL).toBe('qa@example.com');
+      expect(opts.env).not.toHaveProperty('GITHUB_TOKEN');
+    });
+  });
+
+  it('reports not-wired when no Playwright project matches the setup file', async () => {
+    await withCreds(async () => {
+      execWithOutput(1, 'Error: No tests found.\nMake sure that arguments are regular expressions matching test files.');
+      const r = await ensureAuthSession('/work', mockConfig);
+      expect(r.status).toBe('not-wired');
+    });
+  });
+
+  it('does not mistake a setup that merely prints "no tests found" for a wiring problem', async () => {
+    await withCreds(async () => {
+      execWithOutput(0, 'app log: no tests found in fixtures, continuing\n1 passed');
+      expect((await ensureAuthSession('/work', mockConfig)).status).toBe('ok');
+      execWithOutput(1, 'app log: no tests found in fixtures\n  1) [setup] › e2e/auth.setup.ts › authenticate\n TimeoutError');
+      expect((await ensureAuthSession('/work', mockConfig)).status).toBe('failed');
+    });
+  });
+
+  // Review finding: exit 0 is not a session. A kept customer setup that saves
+  // elsewhere (or skips) must not be reported as signed in.
+  it('reports no-session-file when the setup exits 0 without writing the session file', async () => {
+    await withCreds(async () => {
+      execWithOutput(0, '1 passed');
+      mockExistsSync.mockReturnValue(false);
+      const r = await ensureAuthSession('/work', mockConfig);
+      expect(r.status).toBe('no-session-file');
+      expect(mockExistsSync).toHaveBeenCalledWith('/work/playwright/.auth/user.json');
+    });
+  });
+
+  it('reports failed when the setup ran but could not sign in', async () => {
+    await withCreds(async () => {
+      execWithOutput(1, '  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n    TimeoutError: page.waitForURL');
+      const r = await ensureAuthSession('/work', mockConfig);
+      expect(r.status).toBe('failed');
+      expect(r.output).toContain('TimeoutError');
+    });
   });
 });
 

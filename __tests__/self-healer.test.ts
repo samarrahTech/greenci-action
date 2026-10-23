@@ -196,3 +196,49 @@ describe('healFailedTests', () => {
     expect(healed).toHaveLength(2);
   });
 });
+
+// GC-044: the classifier must consult the credentials so the PR gives the
+// right instructions (TME-web run 40006504031 told the owner to add secrets
+// that were already set).
+describe('healFailedTests — auth classification uses the credentials', () => {
+  const enoentResult: TestResult = {
+    filename: 'e2e/expenses-page-authenticated.spec.ts',
+    passed: false,
+    duration: 1,
+    error: "Error reading storage state from playwright/.auth/user.json:\nENOENT: no such file or directory, open 'playwright/.auth/user.json'",
+  };
+  const authedTest: GeneratedTest = { filename: 'e2e/expenses-page-authenticated.spec.ts', code: "test.use({ storageState: 'playwright/.auth/user.json' })", description: '', confidence: 1 };
+  const llm = { healTest: jest.fn() } as unknown as ILLMClient;
+
+  const withEnv = async (env: Record<string, string | undefined>, fn: () => Promise<void>) => {
+    const restore = { ...process.env };
+    for (const [k, v] of Object.entries(env)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    try {
+      await fn();
+    } finally {
+      process.env = restore;
+    }
+  };
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('is missing-session when the secrets are absent', async () => {
+    await withEnv({ TEST_USER_EMAIL: undefined, TEST_USER_PASSWORD: undefined }, async () => {
+      const out = await healFailedTests([{ test: authedTest, result: enoentResult }], mockContext, mockConfig, llm, '/work');
+      expect(out.authBlocked).toEqual([expect.objectContaining({ kind: 'missing-session' })]);
+      expect(llm.healTest).not.toHaveBeenCalled();
+    });
+  });
+
+  it('is setup-not-run when the secrets are present, and still never heals', async () => {
+    await withEnv({ TEST_USER_EMAIL: 'qa@example.com', TEST_USER_PASSWORD: 'pw' }, async () => {
+      const out = await healFailedTests([{ test: authedTest, result: enoentResult }], mockContext, mockConfig, llm, '/work');
+      expect(out.authBlocked).toEqual([expect.objectContaining({ kind: 'setup-not-run' })]);
+      expect(llm.healTest).not.toHaveBeenCalled();
+      expect(out.healed).toEqual([]);
+    });
+  });
+});

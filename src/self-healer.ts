@@ -1,7 +1,7 @@
 import * as core from '@actions/core';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
 import { runTests, writeTests } from './test-runner';
-import { classifyAuthFailure, type AuthFailureKind } from './auth-scaffold';
+import { classifyAuthFailure, hasTestCredentials, type AuthFailureKind } from './auth-scaffold';
 
 export interface HealingOutcome {
   healed: GeneratedTest[];
@@ -27,13 +27,14 @@ export async function healFailedTests(
   for (const { test, result } of failedTests) {
     // Auth walls are not selector bugs: a heal cannot conjure a session, so
     // don't spend LLM calls on them — route to the credentials instructions.
-    const authKind = classifyAuthFailure(result.error);
+    const authKind = classifyAuthFailure(result.error, { hasCredentials: hasTestCredentials() });
     if (authKind) {
-      core.warning(
-        authKind === 'missing-session'
-          ? `🔐 ${test.filename} needs login credentials — skipping heal (see PR instructions)`
-          : `🔐 ${test.filename} blocked: the login setup ran but could not sign in — skipping heal`,
-      );
+      const why: Record<AuthFailureKind, string> = {
+        'missing-session': `🔐 ${test.filename} needs login credentials — skipping heal (see PR instructions)`,
+        'setup-not-run': `🔐 ${test.filename}: credentials are set but no session file existed when this spec ran — skipping heal`,
+        'setup-failed': `🔐 ${test.filename} blocked: the login setup ran but could not sign in — skipping heal`,
+      };
+      core.warning(why[authKind]);
       authBlocked.push({ filename: test.filename, error: result.error, kind: authKind });
       results.push(result);
       continue;
@@ -93,7 +94,7 @@ export async function healFailedTests(
     }
 
     if (!wasHealed) {
-      if (!bugSuspected) {
+      if (!bugSuspected && config.maxRetries > 0) {
         core.warning(`❌ ${test.filename} could not be healed after ${config.maxRetries} attempts`);
       }
       results.push(currentResult);
