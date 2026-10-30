@@ -73,5 +73,5 @@ outputs:
     description: 'URL to the PR comment with full report'
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'

@@ -64,6 +64,8 @@ jobs:
 > which is on disk and outside that boundary. GreenCI commits through the
 > GitHub API, so turning this off costs nothing.
 
+> **Runner requirement:** the action runs on Node 24 (`runs.using: node24`). GitHub-hosted runners already support it; self-hosted runners need [actions/runner](https://github.com/actions/runner/releases) v2.327.1 or newer, and GitHub Enterprise Server needs a release that ships that runner.
+
 > **Use `pull_request`, not `pull_request_target`.**
 > GreenCI reads the pull request's diff and passes it to a model. Under
 > `pull_request_target` the job runs with repository secrets and write access
