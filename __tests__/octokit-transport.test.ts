@@ -7,8 +7,9 @@ import type { AddressInfo } from 'net';
  *
  * Every other test that touches @actions/github mocks it, so the entire
  * transport was uncovered — which mattered when undici was pinned to ^6 via an
- * npm override while @actions/http-client still declares ^5. The unit suite
- * stayed green throughout because none of it ever opened a socket.
+ * npm override while @actions/http-client still declared ^5 (http-client 3.0.2
+ * now declares ^6 itself, so the override is gone). The unit suite stayed
+ * green throughout because none of it ever opened a socket.
  *
  * @actions/github wires `fetch: getProxyFetch(baseUrl)` into the Octokit
  * defaults at module load (node_modules/@actions/github/lib/utils.js), and that
