@@ -15,6 +15,16 @@ jest.mock('../src/self-healer', () => ({
   healFailedTests: jest.fn().mockResolvedValue({ healed: [], results: [], suspectedBugs: [], authBlocked: [] }),
 }));
 
+// Fixtures below use placeholder code ('test code', 'fixed code'); the
+// tautology lint would reject every one of them, so it is stubbed to accept
+// here. assertion-lint.test.ts covers the lint itself; the rejection paths get
+// their own cases in this file by overriding the stub.
+jest.mock('../src/assertion-lint', () => ({
+  ...jest.requireActual('../src/assertion-lint'),
+  lintAssertions: jest.fn(() => ({ ok: true, total: 1, vacuous: [] })),
+  rejectTautologies: jest.fn((tests: unknown[]) => ({ kept: tests, rejected: [] })),
+}));
+import { rejectTautologies } from '../src/assertion-lint';
 import { generateAndRunTests } from '../src/test-generator';
 
 // Mock @actions/core
@@ -70,6 +80,25 @@ describe('generateAndRunTests', () => {
     expect(report.testsGenerated).toBe(1);
     expect(report.testsPassed).toBe(1);
     expect(report.testsFailed).toBe(0);
+  });
+
+  it('drops tautological tests before writing and reports them', async () => {
+    const hollow: GeneratedTest = { filename: 'e2e/hollow.spec.ts', code: 'expect(true).toBe(true)', description: '', confidence: 1 };
+    const real: GeneratedTest = { filename: 'e2e/dashboard.spec.ts', code: 'real', description: '', confidence: 1 };
+    (rejectTautologies as jest.Mock).mockReturnValueOnce({
+      kept: [real],
+      rejected: [{ filename: hollow.filename, reason: 'every assertion is unfalsifiable' }],
+    });
+    const client: ILLMClient = {
+      generateTests: jest.fn().mockResolvedValue([hollow, real]),
+      healTest: jest.fn(),
+    };
+
+    const report = await generateAndRunTests(mockContext, mockConfig, client, '/tmp');
+
+    expect(rejectTautologies).toHaveBeenCalledWith([hollow, real]);
+    expect(report.testsGenerated).toBe(1);
+    expect(report.rejectedTests).toEqual([{ filename: 'e2e/hollow.spec.ts', reason: 'every assertion is unfalsifiable' }]);
   });
 
   it('should return empty report when no tests generated', async () => {

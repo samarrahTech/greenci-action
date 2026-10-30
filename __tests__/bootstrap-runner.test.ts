@@ -1,3 +1,4 @@
+import * as core from '@actions/core';
 import * as path from 'path';
 import { buildBootstrapPRBody, runBootstrap } from '../src/bootstrap-runner';
 import * as testRunner from '../src/test-runner';
@@ -7,6 +8,16 @@ import * as existingTests from '../src/existing-tests';
 import * as authScaffold from '../src/auth-scaffold';
 import { ActionConfig, ILLMClient } from '../src/types';
 
+// Fixtures below use placeholder code ('test code', 'fixed code'); the
+// tautology lint would reject every one of them, so it is stubbed to accept
+// here. assertion-lint.test.ts covers the lint itself; the rejection paths get
+// their own cases in this file by overriding the stub.
+jest.mock('../src/assertion-lint', () => ({
+  ...jest.requireActual('../src/assertion-lint'),
+  lintAssertions: jest.fn(() => ({ ok: true, total: 1, vacuous: [] })),
+  rejectTautologies: jest.fn((tests: unknown[]) => ({ kept: tests, rejected: [] })),
+}));
+import { rejectTautologies } from '../src/assertion-lint';
 jest.mock('@actions/core');
 jest.mock('../src/git-ops');
 jest.mock('../src/test-runner');
@@ -123,6 +134,52 @@ describe('runBootstrap — auth scaffold + config commit', () => {
     (testRunner.runTests as jest.Mock).mockResolvedValue([{ filename: 'expenses.spec.ts', passed: true, duration: 1 }]);
     (gitOps.createBootstrapPR as jest.Mock).mockResolvedValue({ prUrl: 'https://x/pr/1', committedFiles: [] });
     (healer.healFailedTests as jest.Mock).mockResolvedValue({ healed: [], results: [], suspectedBugs: [], authBlocked: [] });
+  });
+
+  // GC-027: a generated spec with no falsifiable assertion never reaches
+  // disk, is not counted, and the PR says why the count is lower.
+  it('drops tautological specs before writing and lists them in the PR body', async () => {
+    const hollow = { filename: 'journey-4.spec.ts', code: 'expect(page).toHaveURL(/.*/)', description: '', confidence: 1 };
+    (llm.bootstrapTests as jest.Mock).mockResolvedValueOnce([hollow, authedSpec]);
+    (rejectTautologies as jest.Mock).mockReturnValueOnce({
+      kept: [authedSpec],
+      rejected: [{ filename: 'journey-4.spec.ts', reason: 'every assertion is unfalsifiable' }],
+    });
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
+
+    const outcome = await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+
+    expect(rejectTautologies).toHaveBeenCalledWith([hollow, authedSpec]);
+    expect(testRunner.writeTests).toHaveBeenCalledWith([authedSpec], '/work', 'e2e', expect.anything());
+    expect(testRunner.runTests).toHaveBeenCalledWith([authedSpec], config, '/work');
+    expect(outcome.testsGenerated).toBe(1);
+    const body: string = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][5];
+    expect(body).toContain('Discarded: tests that could not fail');
+    expect(body).toContain('`journey-4.spec.ts` — every assertion is unfalsifiable');
+  });
+
+  it('returns an empty outcome without touching disk when every spec is a tautology', async () => {
+    const hollow = { filename: 'journey-4.spec.ts', code: 'expect(page).toHaveURL(/.*/)', description: '', confidence: 1 };
+    (llm.bootstrapTests as jest.Mock).mockResolvedValueOnce([hollow]);
+    (rejectTautologies as jest.Mock).mockReturnValueOnce({
+      kept: [],
+      rejected: [{ filename: 'journey-4.spec.ts', reason: 'every assertion is unfalsifiable' }],
+    });
+
+    const outcome = await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+
+    expect(outcome).toEqual({
+      testsGenerated: 0,
+      testsPassed: 0,
+      testsFailed: 0,
+      testsHealed: 0,
+      prUrl: null,
+      rejected: [{ filename: 'journey-4.spec.ts', reason: 'every assertion is unfalsifiable' }],
+    });
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('All 1 generated spec(s) were discarded'));
+    expect(testRunner.writeTests).not.toHaveBeenCalled();
+    expect(gitOps.createBootstrapPR).not.toHaveBeenCalled();
   });
 
   // Review finding: a repo with its own auth.setup.ts but no config must still

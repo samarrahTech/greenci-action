@@ -5,6 +5,16 @@ import * as testRunner from '../src/test-runner';
 
 jest.mock('@actions/core');
 jest.mock('../src/test-runner');
+// Fixtures below use placeholder code ('test code', 'fixed code'); the
+// tautology lint would reject every one of them, so it is stubbed to accept
+// here. assertion-lint.test.ts covers the lint itself; the rejection paths get
+// their own cases in this file by overriding the stub.
+jest.mock('../src/assertion-lint', () => ({
+  ...jest.requireActual('../src/assertion-lint'),
+  lintAssertions: jest.fn(() => ({ ok: true, total: 1, vacuous: [] })),
+  rejectTautologies: jest.fn((tests: unknown[]) => ({ kept: tests, rejected: [] })),
+}));
+import { lintAssertions } from '../src/assertion-lint';
 
 const mockConfig: ActionConfig = {
   apiKey: 'mock-key',
@@ -71,6 +81,36 @@ describe('healFailedTests', () => {
     expect(healed).toHaveLength(1);
     expect(results[0].passed).toBe(true);
     expect(mockLLMClient.healTest).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a heal that strips every falsifiable assertion and tells the next attempt why', async () => {
+    const hollow = { ...failedTest, code: 'expect(page).toHaveURL(/.*/)' };
+    const real = { ...failedTest, code: 'await expect(page.getByText("Saved")).toBeVisible()' };
+    (lintAssertions as jest.Mock)
+      .mockReturnValueOnce({ ok: false, total: 1, vacuous: [], reason: 'every assertion is unfalsifiable' })
+      .mockReturnValueOnce({ ok: true, total: 1, vacuous: [] });
+    (mockLLMClient.healTest as jest.Mock).mockResolvedValueOnce(hollow).mockResolvedValueOnce(real);
+    (testRunner.runTests as jest.Mock).mockResolvedValue([{ ...failedResult, passed: true }]);
+
+    const { healed, results } = await healFailedTests(
+      [{ test: failedTest, result: failedResult }],
+      mockContext,
+      { ...mockConfig, maxRetries: 2 },
+      mockLLMClient,
+      '/work'
+    );
+
+    // The hollow heal never reached disk or the runner.
+    expect(testRunner.writeTests).toHaveBeenCalledTimes(1);
+    expect(testRunner.writeTests).toHaveBeenCalledWith([real], '/work', mockConfig.testDir, undefined);
+    expect(testRunner.runTests).toHaveBeenCalledTimes(1);
+    // The second heal request carried the rejection reason.
+    const secondRequest = (mockLLMClient.healTest as jest.Mock).mock.calls[1][0];
+    expect(secondRequest.attempt).toBe(2);
+    expect(secondRequest.test).toBe(failedTest);
+    expect(secondRequest.error).toMatch(/GreenCI rejected the previous fix because every assertion is unfalsifiable/);
+    expect(healed).toEqual([real]);
+    expect(results[0].passed).toBe(true);
   });
 
   it('should retry up to maxRetries', async () => {

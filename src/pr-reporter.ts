@@ -1,5 +1,6 @@
 import * as github from '@actions/github';
 import { PRContext, RunReport } from './types';
+import { renderRejectedSection } from './assertion-lint';
 
 const COMMENT_MARKER = '<!-- greenci-report -->';
 
@@ -97,6 +98,10 @@ function buildReportBody(report: RunReport): string {
     }
     body += `\nHealed tests are committed to this PR — review the diff like any other change.\n\n`;
   }
+
+  // Tautologies dropped before running — say so, or the count looks lower
+  // than what the model proposed for no visible reason.
+  body += renderRejectedSection(report.rejectedTests);
 
   // Committed files
   if (report.committedFiles.length > 0) {

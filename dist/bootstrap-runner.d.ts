@@ -2,12 +2,15 @@ import { ActionConfig, GeneratedTest, ILLMClient, SuspectedBug, TestResult } fro
 import { type AuthFailureKind } from './auth-scaffold';
 import { type RenamedTest } from './existing-tests';
 import { type AuthSessionStatus } from './test-runner';
+import { type RejectedTest } from './assertion-lint';
 export interface BootstrapOutcome {
     testsGenerated: number;
     testsPassed: number;
     testsFailed: number;
     testsHealed: number;
     prUrl: string | null;
+    /** Generated specs dropped by the tautology lint (see assertion-lint.ts). */
+    rejected: RejectedTest[];
 }
 /**
  * Bootstrap mode: build a foundational suite for an app with no tests.
@@ -32,4 +35,5 @@ export declare function buildBootstrapPRBody(journeys: string[], passed: TestRes
     authSetupStatus?: AuthSessionStatus;
     authSetupOutput?: string;
     renamed?: RenamedTest[];
+    rejected?: RejectedTest[];
 }): string;
