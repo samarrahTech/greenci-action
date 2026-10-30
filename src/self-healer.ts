@@ -2,6 +2,7 @@ import * as core from '@actions/core';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
 import { runTests, writeTests, type ProtectExisting } from './test-runner';
 import { classifyAuthFailure, hasTestCredentials, type AuthFailureKind } from './auth-scaffold';
+import { lintAssertions } from './assertion-lint';
 
 export interface HealingOutcome {
   healed: GeneratedTest[];
@@ -43,6 +44,10 @@ export async function healFailedTests(
 
     let currentTest = test;
     let currentResult = result;
+    // What the next heal request is told went wrong. Starts as the real
+    // failure; a rejected heal appends its reason here, never to
+    // currentResult, which is what the PR reports if nothing heals.
+    let healError = result.error || 'Unknown error';
     let wasHealed = false;
     let bugSuspected = false;
 
@@ -53,7 +58,7 @@ export async function healFailedTests(
         const healedTest = await llmClient.healTest(
           {
             test: currentTest,
-            error: currentResult.error || 'Unknown error',
+            error: healError,
             attempt,
             context,
           },
@@ -79,6 +84,16 @@ export async function healFailedTests(
         // or a renamed bootstrap spec could come back under the customer's
         // original name and overwrite it.
         healedTest.filename = currentTest.filename;
+
+        // The cheapest way to make a failing test pass is to delete what it
+        // asserts. A heal that leaves nothing falsifiable is not a fix; keep
+        // the current version and tell the next attempt why this one lost.
+        const lint = lintAssertions(healedTest.code);
+        if (!lint.ok) {
+          core.warning(`🚫 ${test.filename}: heal attempt ${attempt} rejected — ${lint.reason}`);
+          healError = `${healError}\n\nGreenCI rejected the previous fix because ${lint.reason}. Keep a real assertion about the page.`;
+          continue;
+        }
         // Write and run the healed test
         await writeTests([healedTest], workDir, config.testDir, protect);
         const [healedResult] = await runTests([healedTest], config, workDir);
@@ -93,6 +108,7 @@ export async function healFailedTests(
 
         currentTest = healedTest;
         currentResult = healedResult;
+        healError = healedResult.error || 'Unknown error';
       } catch (error) {
         core.warning(`Self-healing attempt ${attempt} failed: ${error}`);
       }

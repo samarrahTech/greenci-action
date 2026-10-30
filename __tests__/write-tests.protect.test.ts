@@ -6,6 +6,15 @@ import { healFailedTests } from '../src/self-healer';
 import * as testRunner from '../src/test-runner';
 import { ActionConfig, ILLMClient } from '../src/types';
 
+// Fixtures below use placeholder code ('test code', 'fixed code'); the
+// tautology lint would reject every one of them, so it is stubbed to accept
+// here. assertion-lint.test.ts covers the lint itself; the rejection paths get
+// their own cases in this file by overriding the stub.
+jest.mock('../src/assertion-lint', () => ({
+  ...jest.requireActual('../src/assertion-lint'),
+  lintAssertions: jest.fn(() => ({ ok: true, total: 1, vacuous: [] })),
+  rejectTautologies: jest.fn((tests: unknown[]) => ({ kept: tests, rejected: [] })),
+}));
 jest.mock('@actions/core');
 jest.mock('@actions/exec');
 

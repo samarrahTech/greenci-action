@@ -1,3 +1,4 @@
+import type { RejectedTest } from './assertion-lint';
 export type OperationMode = 'generate' | 'generate-only' | 'migrate' | 'bootstrap';
 export interface ActionConfig {
     apiKey: string;
@@ -101,6 +102,8 @@ export interface RunReport {
     healedTests?: GeneratedTest[];
     /** Failures the healer classified as likely real app regressions */
     suspectedBugs?: SuspectedBug[];
+    /** Generated tests dropped before running: no assertion that could fail */
+    rejectedTests?: RejectedTest[];
 }
 export interface ILLMClient {
     generateTests(context: ChangeContext, config: ActionConfig): Promise<GeneratedTest[]>;

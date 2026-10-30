@@ -37,7 +37,8 @@ async function run(): Promise<void> {
 
       core.info(
         `🌱 Bootstrap complete: ${outcome.testsPassed}/${outcome.testsGenerated} tests passing` +
-          (outcome.prUrl ? ` — PR: ${outcome.prUrl}` : ''),
+          (outcome.prUrl ? ` — PR: ${outcome.prUrl}` : '') +
+          (outcome.rejected.length > 0 ? ` — ${outcome.rejected.length} discarded as unfalsifiable (see warnings)` : ''),
       );
       return;
     }

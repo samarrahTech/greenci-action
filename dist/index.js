@@ -32913,6 +32913,491 @@ module.exports = {
 
 /***/ }),
 
+/***/ 3473:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/**
+ * Post-generation tautology lint.
+ *
+ * A generated spec that cannot fail is worse than no spec: it inflates the
+ * count, and a customer who reads one (`toHaveURL(/.*\/)`, "body is visible")
+ * stops trusting the whole suite. This module decides, without running
+ * anything, whether a spec contains at least one assertion that a real page
+ * could falsify. It is deliberately a heuristic scanner rather than a full
+ * parser: the vacuous patterns a model produces are few and stable, and a
+ * false "ok" costs nothing more than today, while a false rejection would
+ * throw away a real test — so every rule below only fires on shapes that are
+ * unfalsifiable by construction.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.lintAssertions = lintAssertions;
+exports.rejectTautologies = rejectTautologies;
+exports.renderRejectedSection = renderRejectedSection;
+/**
+ * Probe strings a "matches anything" pattern must accept. Deliberately
+ * dissimilar (scheme, host, shape), so a pattern that checks a real property
+ * — `/^https?:\/\//`, `/localhost/` — fails at least one and is kept.
+ */
+const URL_PROBES = [
+    'http://localhost:3000/',
+    'https://example.com/a/b?c=d#e',
+    'about:blank',
+    'file:///tmp/index.html',
+    'x',
+];
+const TEXT_PROBES = ['', 'x', 'Lorem ipsum dolor', 'Invoice #42 — $1,200.00', '\n\tTab\n'];
+/** Matchers whose single pattern argument is checked against the probes. */
+const URL_MATCHERS = new Set(['toHaveURL']);
+/** Exact-value matchers: '' is a real (falsifiable) expectation here. */
+const EXACT_TEXT_MATCHERS = new Set([
+    'toHaveText',
+    'toHaveTitle',
+    'toHaveValue',
+    'toHaveAccessibleName',
+    'toHaveAccessibleDescription',
+]);
+/** Substring matchers: '' is contained in everything. */
+const SUBSTRING_MATCHERS = new Set(['toContainText', 'toMatch', 'toContain']);
+/** `expect(<this>).toBeVisible()` cannot fail: the document root is always rendered. */
+const ROOT_LOCATOR = /^page\.locator\(\s*(['"`])(?:body|html|:root)\1\s*\)$/;
+const EXISTENCE_MATCHERS_FOR_ROOT = new Set([
+    'toBeVisible',
+    'toBeAttached',
+    'toBeInViewport',
+    'toBeDefined',
+    'toBeTruthy',
+]);
+/** Fixtures and page.url() are never undefined/null/falsy. */
+const ALWAYS_TRUTHY_FIXTURE = /^(?:page|context|browser|request|page\.url\(\))$/;
+/**
+ * Methods that return a Locator (a handle, not a query result). A chain made
+ * only of these — `page.getByRole('x').first()` — is always defined; one that
+ * ends in `.textContent()`, `.count()`, `.getAttribute()` is a real value.
+ */
+const LOCATOR_METHODS = new Set([
+    'locator',
+    'getByRole',
+    'getByText',
+    'getByLabel',
+    'getByPlaceholder',
+    'getByAltText',
+    'getByTitle',
+    'getByTestId',
+    'frameLocator',
+    'first',
+    'last',
+    'nth',
+    'filter',
+    'and',
+    'or',
+    'describe',
+]);
+const EXISTENCE_MATCHERS = new Set(['toBeDefined', 'toBeTruthy']);
+const NEGATED_ABSENCE_MATCHERS = new Set(['toBeNull', 'toBeUndefined', 'toBeFalsy']);
+/** A literal with nothing dynamic in it (template literals with `${` excluded). */
+const LITERAL = /^(?:true|false|null|undefined|-?\d+(?:\.\d+)?|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\$]|\\.|\$(?!\{))*`)$/s;
+/**
+ * Decide whether `code` has at least one falsifiable assertion.
+ */
+function lintAssertions(code) {
+    const assertions = findAssertions(code);
+    const vacuous = [];
+    let falsifiable = 0;
+    for (const assertion of assertions) {
+        const reason = vacuousReason(assertion);
+        if (reason)
+            vacuous.push({ snippet: assertion.snippet, reason });
+        else
+            falsifiable++;
+    }
+    if (assertions.length === 0) {
+        return { ok: false, total: 0, vacuous, reason: 'no expect() assertion — the test cannot fail' };
+    }
+    if (falsifiable === 0) {
+        const detail = vacuous.map((v) => `${v.snippet} (${v.reason})`).join('; ');
+        return {
+            ok: false,
+            total: assertions.length,
+            vacuous,
+            reason: `every assertion is unfalsifiable — ${detail}`,
+        };
+    }
+    return { ok: true, total: assertions.length, vacuous };
+}
+/**
+ * Split generated tests into the ones worth running and the ones that could
+ * never fail. Callers log and surface `rejected`; nothing in it reaches disk.
+ */
+function rejectTautologies(tests) {
+    const kept = [];
+    const rejected = [];
+    for (const test of tests) {
+        const result = lintAssertions(test.code);
+        if (result.ok)
+            kept.push(test);
+        else
+            rejected.push({
+                filename: test.filename,
+                reason: result.reason ?? 'no falsifiable assertion',
+            });
+    }
+    return { kept, rejected };
+}
+/** The PR-body section both report builders show for rejected tests. */
+function renderRejectedSection(rejected) {
+    if (!rejected || rejected.length === 0)
+        return '';
+    let body = '### 🚫 Discarded: tests that could not fail\n\n';
+    body +=
+        'GreenCI checks every generated test for at least one assertion a real page could falsify. ' +
+            'These had none, so they were not written — a test that is always green only inflates the count:\n\n';
+    body += rejected.map((r) => `- \`${r.filename}\` — ${r.reason}`).join('\n') + '\n\n';
+    return body;
+}
+// ---------------------------------------------------------------------------
+// Scanner
+// ---------------------------------------------------------------------------
+/** Characters after which a `/` starts a regex literal rather than division. */
+const REGEX_PRECEDERS = new Set([
+    '(',
+    ',',
+    '=',
+    ':',
+    '[',
+    '!',
+    '&',
+    '|',
+    '?',
+    '{',
+    '}',
+    ';',
+    '\n',
+    '+',
+    '-',
+    '*',
+    '%',
+    '<',
+    '>',
+    '~',
+    '^',
+]);
+/**
+ * Index just past the `)` that closes the `(` at `open`, honouring strings,
+ * template literals, regex literals and comments. Returns -1 when unbalanced.
+ */
+function closingParen(code, open) {
+    let depth = 0;
+    let i = open;
+    while (i < code.length) {
+        const ch = code[i];
+        if (ch === '"' || ch === "'" || ch === '`') {
+            i = skipString(code, i);
+            continue;
+        }
+        if (ch === '/' && code[i + 1] === '/') {
+            i = code.indexOf('\n', i);
+            if (i < 0)
+                return -1;
+            continue;
+        }
+        if (ch === '/' && code[i + 1] === '*') {
+            i = code.indexOf('*/', i + 2);
+            if (i < 0)
+                return -1;
+            i += 2;
+            continue;
+        }
+        if (ch === '/' && startsRegex(code, i)) {
+            i = skipRegex(code, i);
+            continue;
+        }
+        if (ch === '(' || ch === '[' || ch === '{')
+            depth++;
+        if (ch === ')' || ch === ']' || ch === '}') {
+            depth--;
+            if (depth === 0)
+                return i + 1;
+        }
+        i++;
+    }
+    return -1;
+}
+function skipString(code, start) {
+    const quote = code[start];
+    let i = start + 1;
+    while (i < code.length) {
+        const ch = code[i];
+        if (ch === '\\') {
+            i += 2;
+            continue;
+        }
+        if (quote === '`' && ch === '$' && code[i + 1] === '{') {
+            const end = closingParen(code, i + 1);
+            if (end < 0)
+                return code.length;
+            i = end;
+            continue;
+        }
+        if (ch === quote)
+            return i + 1;
+        i++;
+    }
+    return code.length;
+}
+function startsRegex(code, slash) {
+    let j = slash - 1;
+    while (j >= 0 && (code[j] === ' ' || code[j] === '\t'))
+        j--;
+    if (j < 0)
+        return true;
+    return REGEX_PRECEDERS.has(code[j]);
+}
+function skipRegex(code, start) {
+    let i = start + 1;
+    let inClass = false;
+    while (i < code.length) {
+        const ch = code[i];
+        if (ch === '\\') {
+            i += 2;
+            continue;
+        }
+        if (ch === '\n')
+            return i; // not a regex after all; stop at line end
+        if (ch === '[')
+            inClass = true;
+        else if (ch === ']')
+            inClass = false;
+        else if (ch === '/' && !inClass) {
+            i++;
+            while (i < code.length && /[a-z]/i.test(code[i]))
+                i++; // flags
+            return i;
+        }
+        i++;
+    }
+    return code.length;
+}
+/**
+ * Two views of the source: `code` with comments removed, and `mask`, the
+ * same text with every string and regex body blanked to spaces. Indices line
+ * up, so the scanner finds `expect(` in `mask` (never inside a string) and
+ * reads subjects and arguments from `code`.
+ */
+function prepare(source) {
+    let code = '';
+    let mask = '';
+    let i = 0;
+    while (i < source.length) {
+        const ch = source[i];
+        if (ch === '"' || ch === "'" || ch === '`') {
+            const end = skipString(source, i);
+            code += source.slice(i, end);
+            mask += ch + ' '.repeat(Math.max(0, end - i - 2)) + (end - i > 1 ? ch : '');
+            i = end;
+            continue;
+        }
+        if (ch === '/' && source[i + 1] === '/') {
+            const end = source.indexOf('\n', i);
+            i = end < 0 ? source.length : end;
+            continue;
+        }
+        if (ch === '/' && source[i + 1] === '*') {
+            const end = source.indexOf('*/', i + 2);
+            code += ' ';
+            mask += ' ';
+            i = end < 0 ? source.length : end + 2;
+            continue;
+        }
+        if (ch === '/' && startsRegex(source, i)) {
+            const end = skipRegex(source, i);
+            code += source.slice(i, end);
+            mask += ' '.repeat(end - i);
+            i = end;
+            continue;
+        }
+        code += ch;
+        mask += ch;
+        i++;
+    }
+    return { code, mask };
+}
+const EXPECT_CALL = /\bexpect(?:\s*\.\s*(?:soft|poll))?\s*\(/g;
+const CHAIN_LINK = /\s*\.\s*([A-Za-z_$][\w$]*)/y;
+const OPEN_PAREN = /\s*\(/y;
+function findAssertions(source) {
+    const out = [];
+    const { code, mask } = prepare(source);
+    EXPECT_CALL.lastIndex = 0;
+    let m;
+    while ((m = EXPECT_CALL.exec(mask))) {
+        const open = m.index + m[0].length - 1;
+        const close = closingParen(code, open);
+        if (close < 0)
+            break;
+        const subject = code.slice(open + 1, close - 1).trim();
+        // Walk the chain: (.modifier)* .matcher( args )
+        const modifiers = [];
+        let matcher = '';
+        let args = '';
+        let i = close;
+        let end = close;
+        for (;;) {
+            CHAIN_LINK.lastIndex = i;
+            const link = CHAIN_LINK.exec(mask);
+            if (!link)
+                break;
+            const name = link[1];
+            const afterName = i + link[0].length;
+            if (name === 'not' || name === 'resolves' || name === 'rejects') {
+                modifiers.push(name);
+                i = afterName;
+                continue;
+            }
+            OPEN_PAREN.lastIndex = afterName;
+            const paren = OPEN_PAREN.exec(mask);
+            if (!paren)
+                break;
+            const argsOpen = afterName + paren[0].length - 1;
+            const argsClose = closingParen(code, argsOpen);
+            if (argsClose < 0)
+                break;
+            matcher = name;
+            args = code.slice(argsOpen + 1, argsClose - 1).trim();
+            end = argsClose;
+            break;
+        }
+        out.push({
+            subject,
+            modifiers,
+            matcher,
+            args,
+            snippet: code.slice(m.index, end).replace(/\s+/g, ' ').trim(),
+        });
+        EXPECT_CALL.lastIndex = Math.max(end, close);
+    }
+    return out;
+}
+// ---------------------------------------------------------------------------
+// Rules
+// ---------------------------------------------------------------------------
+function vacuousReason(a) {
+    if (!a.matcher)
+        return null; // unfinished chain — leave it to Playwright
+    const negated = a.modifiers.includes('not');
+    // expect(true).toBe(true): both sides are constants, so the outcome is too.
+    // expect(200).toBe(response.status()) is backwards but real — keep it.
+    if (LITERAL.test(a.subject) && (a.args === '' || LITERAL.test(a.args))) {
+        return 'both sides are constants';
+    }
+    // Pattern matchers fed a pattern that matches anything.
+    const isUrl = URL_MATCHERS.has(a.matcher);
+    const isSubstring = SUBSTRING_MATCHERS.has(a.matcher);
+    if (!negated && (isUrl || isSubstring || EXACT_TEXT_MATCHERS.has(a.matcher))) {
+        const first = firstArgument(a.args);
+        const probes = isUrl ? URL_PROBES : TEXT_PROBES;
+        if (first !== null && matchesEverything(first, probes, isSubstring)) {
+            return `${a.matcher}(${first}) matches any value`;
+        }
+    }
+    // The document root is always visible/attached.
+    if (!negated && ROOT_LOCATOR.test(a.subject) && EXISTENCE_MATCHERS_FOR_ROOT.has(a.matcher)) {
+        return 'the document root is always rendered';
+    }
+    // Fixtures, locator handles and page.url() are never undefined/null/falsy.
+    if (ALWAYS_TRUTHY_FIXTURE.test(a.subject) || isLocatorChain(a.subject)) {
+        if (!negated && EXISTENCE_MATCHERS.has(a.matcher))
+            return 'subject is always defined';
+        if (negated && NEGATED_ABSENCE_MATCHERS.has(a.matcher))
+            return 'subject is never null';
+    }
+    return null;
+}
+/**
+ * `page.<locatorMethod>(...)(.<locatorMethod>(...))*` and nothing else: a
+ * Locator handle. Any `await`, any other trailing call (`.count()`,
+ * `.textContent()`), or anything after the chain means a real value.
+ */
+function isLocatorChain(subject) {
+    if (!subject.startsWith('page'))
+        return false;
+    let i = 'page'.length;
+    let links = 0;
+    while (i < subject.length) {
+        CHAIN_LINK.lastIndex = i;
+        const link = CHAIN_LINK.exec(subject);
+        if (!link || !LOCATOR_METHODS.has(link[1]))
+            return false;
+        const afterName = i + link[0].length;
+        OPEN_PAREN.lastIndex = afterName;
+        const paren = OPEN_PAREN.exec(subject);
+        if (!paren)
+            return false;
+        const close = closingParen(subject, afterName + paren[0].length - 1);
+        if (close < 0)
+            return false;
+        i = close;
+        links++;
+    }
+    return links > 0;
+}
+/** First top-level argument of an argument list, or null when empty. */
+function firstArgument(args) {
+    if (!args)
+        return null;
+    let depth = 0;
+    let i = 0;
+    while (i < args.length) {
+        const ch = args[i];
+        if (ch === '"' || ch === "'" || ch === '`') {
+            i = skipString(args, i);
+            continue;
+        }
+        if (ch === '/' && startsRegex(args, i)) {
+            i = skipRegex(args, i);
+            continue;
+        }
+        if (ch === '(' || ch === '[' || ch === '{')
+            depth++;
+        if (ch === ')' || ch === ']' || ch === '}')
+            depth--;
+        if (ch === ',' && depth === 0)
+            return args.slice(0, i).trim();
+        i++;
+    }
+    return args.trim();
+}
+function isEmptyString(arg) {
+    return arg !== null && /^(['"`])\1$/.test(arg);
+}
+/**
+ * True when `arg` is a pattern every probe satisfies: a regex literal that
+ * accepts all of them, an empty string (substring of everything), or an
+ * `expect.anything()` / `expect.any(String)` wildcard.
+ */
+function matchesEverything(arg, probes, emptyStringIsWildcard) {
+    if (isEmptyString(arg))
+        return emptyStringIsWildcard;
+    if (/^expect\.(anything\(\)|any\(\s*String\s*\))$/.test(arg))
+        return true;
+    const re = /^\/((?:\\.|\[(?:\\.|[^\]])*\]|[^/])*)\/([a-z]*)$/s.exec(arg);
+    if (!re)
+        return false;
+    let pattern;
+    try {
+        // g and y make .test() stateful across probes; they do not change what matches.
+        pattern = new RegExp(re[1], re[2].replace(/[^imsu]/g, ''));
+    }
+    catch {
+        return false;
+    }
+    return probes.every((p) => pattern.test(p));
+}
+
+
+/***/ }),
+
 /***/ 7972:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -33276,6 +33761,7 @@ const test_runner_1 = __nccwpck_require__(7194);
 const self_healer_1 = __nccwpck_require__(6523);
 const git_ops_1 = __nccwpck_require__(7482);
 const safe_paths_1 = __nccwpck_require__(3);
+const assertion_lint_1 = __nccwpck_require__(3473);
 /**
  * Bootstrap mode: build a foundational suite for an app with no tests.
  * Journeys (plain English) + rendered page HTML → generate → run → heal →
@@ -33295,7 +33781,7 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     }
     const existing = (0, existing_tests_1.readExistingTests)(workDir, config.testDir);
     const existingTests = existing.length > 0 ? (0, existing_tests_1.formatExistingTestsForAPI)(existing) : undefined;
-    const generatedTests = (await llmClient.bootstrapTests(journeys, pages, config, existingTests)).filter((t) => {
+    const proposed = (await llmClient.bootstrapTests(journeys, pages, config, existingTests)).filter((t) => {
         // The login setup is ours (or the customer's), never model output: a
         // generated file under that name would otherwise be run as the sign-in
         // step and win over the template.
@@ -33305,9 +33791,20 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
         }
         return true;
     });
+    // A spec that cannot fail would be committed as "passing" and read by the
+    // customer as proof the suite is hollow. Drop it before it touches disk.
+    const { kept: generatedTests, rejected } = (0, assertion_lint_1.rejectTautologies)(proposed);
+    for (const r of rejected) {
+        core.warning(`🚫 Rejected ${r.filename}: ${r.reason}`);
+    }
     core.info(`Generated ${generatedTests.length} test file(s)`);
     if (generatedTests.length === 0) {
-        return { testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, prUrl: null };
+        if (rejected.length > 0) {
+            // Nothing to open a PR with, so the log is the only place this can go.
+            core.warning(`All ${rejected.length} generated spec(s) were discarded because none contained an assertion that could fail. ` +
+                'Nothing was written. Re-run the bootstrap, or make the journeys more concrete (name the thing the user should see).');
+        }
+        return { testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, prUrl: null, rejected };
     }
     // Never rewrite a spec the customer already has (see ProtectExisting).
     const protect = { owned: new Set(), renamed: [] };
@@ -33395,6 +33892,7 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
             authSetupStatus: authSession?.status,
             authSetupOutput: authSession?.output,
             renamed: protect.renamed,
+            rejected,
         });
         const result = await (0, git_ops_1.createBootstrapPR)(token, repo.owner, repo.repo, commitFiles, workDir, body);
         prUrl = result.prUrl;
@@ -33408,6 +33906,7 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
         testsFailed: failed.length,
         testsHealed: healed.length,
         prUrl,
+        rejected,
     };
 }
 function emptyChangeContext() {
@@ -33438,6 +33937,7 @@ function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, s
         body += 'These journeys produced a file with the same name as a test already in your repo. GreenCI never overwrites your tests, so the new one was committed alongside it. Diff the pair and keep the one you prefer:\n\n';
         body += renamedCommitted.map((r) => `- \`${r.from}\` (yours) → \`${r.to}\` (generated)`).join('\n') + '\n\n';
     }
+    body += (0, assertion_lint_1.renderRejectedSection)(setup.rejected);
     const authNames = new Set(setup.authBlocked.map((a) => a.filename));
     const otherFailed = failed.filter((f) => !authNames.has(f.filename));
     const signInFailed = setup.authBlocked.filter((a) => a.kind === 'setup-failed');
@@ -34478,7 +34978,8 @@ async function run() {
             if (outcome.prUrl)
                 core.setOutput('report-url', outcome.prUrl);
             core.info(`🌱 Bootstrap complete: ${outcome.testsPassed}/${outcome.testsGenerated} tests passing` +
-                (outcome.prUrl ? ` — PR: ${outcome.prUrl}` : ''));
+                (outcome.prUrl ? ` — PR: ${outcome.prUrl}` : '') +
+                (outcome.rejected.length > 0 ? ` — ${outcome.rejected.length} discarded as unfalsifiable (see warnings)` : ''));
             return;
         }
         // Migration mode
@@ -35254,6 +35755,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.postReport = postReport;
 const github = __importStar(__nccwpck_require__(3228));
+const assertion_lint_1 = __nccwpck_require__(3473);
 const COMMENT_MARKER = '<!-- greenci-report -->';
 async function postReport(token, prContext, report) {
     const octokit = github.getOctokit(token);
@@ -35334,6 +35836,9 @@ function buildReportBody(report) {
         }
         body += `\nHealed tests are committed to this PR — review the diff like any other change.\n\n`;
     }
+    // Tautologies dropped before running — say so, or the count looks lower
+    // than what the model proposed for no visible reason.
+    body += (0, assertion_lint_1.renderRejectedSection)(report.rejectedTests);
     // Committed files
     if (report.committedFiles.length > 0) {
         body += `### 📝 Committed Files\n\n`;
@@ -36159,6 +36664,7 @@ exports.healFailedTests = healFailedTests;
 const core = __importStar(__nccwpck_require__(7484));
 const test_runner_1 = __nccwpck_require__(7194);
 const auth_scaffold_1 = __nccwpck_require__(7972);
+const assertion_lint_1 = __nccwpck_require__(3473);
 async function healFailedTests(failedTests, context, config, llmClient, workDir, protect) {
     const healed = [];
     const results = [];
@@ -36181,6 +36687,10 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir,
         }
         let currentTest = test;
         let currentResult = result;
+        // What the next heal request is told went wrong. Starts as the real
+        // failure; a rejected heal appends its reason here, never to
+        // currentResult, which is what the PR reports if nothing heals.
+        let healError = result.error || 'Unknown error';
         let wasHealed = false;
         let bugSuspected = false;
         for (let attempt = 1; attempt <= config.maxRetries; attempt++) {
@@ -36188,7 +36698,7 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir,
             try {
                 const healedTest = await llmClient.healTest({
                     test: currentTest,
-                    error: currentResult.error || 'Unknown error',
+                    error: healError,
                     attempt,
                     context,
                 }, config);
@@ -36208,6 +36718,15 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir,
                 // or a renamed bootstrap spec could come back under the customer's
                 // original name and overwrite it.
                 healedTest.filename = currentTest.filename;
+                // The cheapest way to make a failing test pass is to delete what it
+                // asserts. A heal that leaves nothing falsifiable is not a fix; keep
+                // the current version and tell the next attempt why this one lost.
+                const lint = (0, assertion_lint_1.lintAssertions)(healedTest.code);
+                if (!lint.ok) {
+                    core.warning(`🚫 ${test.filename}: heal attempt ${attempt} rejected — ${lint.reason}`);
+                    healError = `${healError}\n\nGreenCI rejected the previous fix because ${lint.reason}. Keep a real assertion about the page.`;
+                    continue;
+                }
                 // Write and run the healed test
                 await (0, test_runner_1.writeTests)([healedTest], workDir, config.testDir, protect);
                 const [healedResult] = await (0, test_runner_1.runTests)([healedTest], config, workDir);
@@ -36220,6 +36739,7 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir,
                 }
                 currentTest = healedTest;
                 currentResult = healedResult;
+                healError = healedResult.error || 'Unknown error';
             }
             catch (error) {
                 core.warning(`Self-healing attempt ${attempt} failed: ${error}`);
@@ -36354,6 +36874,7 @@ const safe_paths_1 = __nccwpck_require__(3);
 const test_runner_1 = __nccwpck_require__(7194);
 const self_healer_1 = __nccwpck_require__(6523);
 const existing_tests_1 = __nccwpck_require__(2738);
+const assertion_lint_1 = __nccwpck_require__(3473);
 async function generateAndRunTests(context, config, llmClient, workDir) {
     const startTime = Date.now();
     // 0. Read existing tests from testDir
@@ -36364,7 +36885,13 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     }
     // 1. Generate tests
     core.info('🧪 Generating tests...');
-    const generatedTests = await llmClient.generateTests(context, config);
+    const proposed = await llmClient.generateTests(context, config);
+    // Drop tests with no falsifiable assertion before they reach disk (see
+    // assertion-lint.ts): an always-green spec is a trust problem, not coverage.
+    const { kept: generatedTests, rejected: rejectedTests } = (0, assertion_lint_1.rejectTautologies)(proposed);
+    for (const r of rejectedTests) {
+        core.warning(`🚫 Rejected ${r.filename}: ${r.reason}`);
+    }
     core.info(`Generated ${generatedTests.length} test(s)`);
     if (generatedTests.length === 0) {
         return {
@@ -36376,6 +36903,7 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
             duration: Date.now() - startTime,
             tests: [],
             committedFiles: [],
+            rejectedTests,
         };
     }
     // 2. Write tests to disk. writeTests drops any test whose filename failed
@@ -36417,6 +36945,7 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
                 duration: 0,
             })),
             committedFiles: [],
+            rejectedTests,
         };
     }
     // 3. Run tests (installing Playwright + a minimal config if the repo lacks them)
@@ -36465,6 +36994,7 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
         committedFiles: [], // Filled in by index.ts after commit
         healedTests,
         suspectedBugs,
+        rejectedTests,
     };
 }
 

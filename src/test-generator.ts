@@ -4,6 +4,7 @@ import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, TestResult, Run
 import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, writeTests } from './test-runner';
 import { healFailedTests } from './self-healer';
 import { readExistingTests, formatExistingTestsForAPI } from './existing-tests';
+import { rejectTautologies } from './assertion-lint';
 
 export async function generateAndRunTests(
   context: ChangeContext,
@@ -22,7 +23,13 @@ export async function generateAndRunTests(
 
   // 1. Generate tests
   core.info('🧪 Generating tests...');
-  const generatedTests = await llmClient.generateTests(context, config);
+  const proposed = await llmClient.generateTests(context, config);
+  // Drop tests with no falsifiable assertion before they reach disk (see
+  // assertion-lint.ts): an always-green spec is a trust problem, not coverage.
+  const { kept: generatedTests, rejected: rejectedTests } = rejectTautologies(proposed);
+  for (const r of rejectedTests) {
+    core.warning(`🚫 Rejected ${r.filename}: ${r.reason}`);
+  }
   core.info(`Generated ${generatedTests.length} test(s)`);
 
   if (generatedTests.length === 0) {
@@ -35,6 +42,7 @@ export async function generateAndRunTests(
       duration: Date.now() - startTime,
       tests: [],
       committedFiles: [],
+      rejectedTests,
     };
   }
 
@@ -80,6 +88,7 @@ export async function generateAndRunTests(
         duration: 0,
       })),
       committedFiles: [],
+      rejectedTests,
     };
   }
 
@@ -135,5 +144,6 @@ export async function generateAndRunTests(
     committedFiles: [], // Filled in by index.ts after commit
     healedTests,
     suspectedBugs,
+    rejectedTests,
   };
 }
