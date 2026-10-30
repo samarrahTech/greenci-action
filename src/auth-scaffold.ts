@@ -74,15 +74,31 @@ setup('authenticate', async ({ page }) => {
   // sign-in generous room (CI runners are slow; default 30s test timeout is
   // far too tight for a first-compile navigation).
   setup.setTimeout(120_000);
-  setup.skip(!EMAIL || !PASSWORD, 'TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will be skipped');
 
   // Reuse a recent session instead of signing in again. Specs are executed in
   // separate Playwright invocations, so without this the app would receive one
   // login per spec (plus each retry) — slow, and enough to trip the login rate
   // limits real applications have. A file that is fresh but carries no
   // credentials is NOT reused: signing in again is far cheaper than running
-  // the whole suite logged out.
+  // the whole suite logged out. Checked before the secrets: a session written
+  // by another step (a test-login hook, a cached artifact) needs no secrets.
   if (hasUsableSession('${STORAGE_STATE_PATH}')) return;
+
+  // Missing secrets: say so where it will be seen, then skip. Not a throw —
+  // this setup is a dependency of the whole chromium project, so a failure
+  // here would block the public specs too. The authenticated specs still
+  // fail (no saved session), and GreenCI matches the first line below to put
+  // the "add the secrets" instructions in the PR — keep it intact.
+  if (!EMAIL || !PASSWORD) {
+    const message = [
+      'TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will fail until they are.',
+      'Add both as repository secrets (Settings → Secrets and variables → Actions) and expose them as env',
+      'on the step that runs Playwright. Locally: TEST_USER_EMAIL=... TEST_USER_PASSWORD=... npx playwright test',
+    ].join('\\n');
+    console.error('\\n⚠️  GreenCI auth.setup.ts: ' + message + '\\n');
+    setup.info().annotations.push({ type: 'greenci', description: message });
+    setup.skip(true, message);
+  }
 
   await page.goto('${loginPath}');
 

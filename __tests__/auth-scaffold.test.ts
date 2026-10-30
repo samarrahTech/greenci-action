@@ -38,7 +38,9 @@ describe('authSetupSource', () => {
     expect(src).toContain('process.env.TEST_USER_PASSWORD');
     expect(src).toContain("storageState({ path: 'playwright/.auth/user.json' })");
     expect(src).toContain("goto('/login')");
-    expect(src).toContain('setup.skip(!EMAIL || !PASSWORD');
+    expect(src).toContain('if (!EMAIL || !PASSWORD)');
+    expect(src).toContain('setup.skip(true, message)');
+    expect(src).not.toContain('throw new Error(');
   });
 });
 
@@ -144,6 +146,21 @@ describe('hasTestCredentials', () => {
   });
 });
 
+describe('authSetupSource — generated file is valid TypeScript', () => {
+  // The template is a string: an escape that is right in the template and
+  // wrong in the output (a bare \n inside a quoted string) only shows up
+  // when the generated file is parsed. Parse it.
+  it('parses without syntax errors', () => {
+    const ts = jest.requireActual('typescript');
+    const src = authSetupSource('/login');
+    const { diagnostics } = ts.transpileModule(src, { reportDiagnostics: true, compilerOptions: { module: ts.ModuleKind.ESNext } });
+    expect((diagnostics ?? []).map((d: { messageText: unknown }) => d.messageText)).toEqual([]);
+    // Sanity: the same check must flag a broken template.
+    const broken = ts.transpileModule("const x = 'unterminated\n';", { reportDiagnostics: true });
+    expect(broken.diagnostics?.length).toBeGreaterThan(0);
+  });
+});
+
 describe('authSetupSource — session reuse', () => {
   it('skips signing in again when a recent session file exists', () => {
     const src = authSetupSource('/login');
@@ -159,9 +176,24 @@ describe('authSetupSource — session reuse', () => {
     expect(src).toContain('catch');
   });
 
-  it('checks the credentials guard AFTER the skip, so unset creds still classify as missing-session', () => {
+  it('reuses a provisioned session before asking for secrets, then warns loudly and skips — never throws', () => {
     const src = authSetupSource('/login');
-    expect(src.indexOf('setup.skip(!EMAIL')).toBeGreaterThan(-1);
-    expect(src.indexOf('if (hasUsableSession(')).toBeGreaterThan(src.indexOf('setup.skip(!EMAIL'));
+    const reuse = src.indexOf('if (hasUsableSession(');
+    const guard = src.indexOf('if (!EMAIL || !PASSWORD)');
+    expect(reuse).toBeGreaterThan(-1);
+    expect(guard).toBeGreaterThan(reuse);
+    // A throw would fail the setup project and block every dependent spec,
+    // public ones included (chromium depends on setup in the generated config).
+    expect(src).not.toContain('throw new Error(');
+    // Visible in the CI log, the report annotations, and the skip reason.
+    expect(src).toContain("console.error('\\n⚠️  GreenCI auth.setup.ts: ' + message");
+    expect(src).toContain("setup.info().annotations.push({ type: 'greenci', description: message })");
+    expect(src).toContain('setup.skip(true, message)');
+    expect(src).toContain('Add both as repository secrets');
+    // The first line is what GreenCI classifies on.
+    const line = 'TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will fail until they are.';
+    expect(src).toContain(line);
+    expect(isAuthSetupFailure(line)).toBe(true);
+    expect(classifyAuthFailure(line, { hasCredentials: false })).toBe('missing-session');
   });
 });

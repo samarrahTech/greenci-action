@@ -147,7 +147,7 @@ Mention URL paths in a journey (like `/login`) and GreenCI fetches that page's r
 
 #### Journeys behind a login
 
-When journeys need a signed-in user, the bootstrap PR includes a ready-made `auth.setup.ts` (plus Playwright config wiring) that signs in before the suite and saves the session. To activate those tests: create a **dedicated test user** in your app, add `TEST_USER_EMAIL` and `TEST_USER_PASSWORD` as repository secrets, expose them as `env:` on the GreenCI step, and re-run the workflow. Credentials stay in your repo and your CI runner — they never touch GreenCI. (OAuth-only/SSO logins can't be automated this way — ask us about the test-login hook pattern.)
+When journeys need a signed-in user, the bootstrap PR includes a ready-made `auth.setup.ts` (plus Playwright config wiring) that signs in before the suite and saves the session. To activate those tests: create a **dedicated test user** in your app, add `TEST_USER_EMAIL` and `TEST_USER_PASSWORD` as repository secrets, expose them as `env:` on the GreenCI step, and re-run the workflow. Until the secrets exist, `auth.setup.ts` prints a warning naming them and the authenticated specs fail for lack of a saved session; public specs still run. Credentials stay in your repo and your CI runner — they never touch GreenCI. (OAuth-only/SSO logins can't be automated this way — ask us about the test-login hook pattern.)
 
 ### Bring Your Own LLM (Anthropic or OpenAI)
 
