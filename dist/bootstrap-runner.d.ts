@@ -35,5 +35,10 @@ export declare function buildBootstrapPRBody(journeys: string[], passed: TestRes
     authSetupStatus?: AuthSessionStatus;
     authSetupOutput?: string;
     renamed?: RenamedTest[];
+<<<<<<< HEAD
     rejected?: RejectedTest[];
+=======
+    /** The config this run wrote, when it wrote one — shown verbatim so the local copy matches. */
+    configSource?: string;
+>>>>>>> 36c825e (feat(bootstrap): give the generated playwright.config.ts a webServer block for local runs)
 }): string;

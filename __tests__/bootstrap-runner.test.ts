@@ -35,6 +35,12 @@ jest.mock('../src/auth-scaffold', () => ({
   writeAuthScaffold: jest.fn(),
 }));
 
+// The whole test-runner is mocked above; the config template is pure and the
+// PR body renders it, so give it back its real implementation.
+beforeEach(() => {
+  (testRunner.playwrightConfigSource as jest.Mock).mockImplementation(jest.requireActual('../src/test-runner').playwrightConfigSource);
+});
+
 const base = {
   installedPlaywright: false,
   createdConfig: false,
@@ -99,6 +105,28 @@ describe('buildBootstrapPRBody — auth sections', () => {
     expect(body).toContain('TimeoutError: page.waitForURL');
     expect(body).not.toContain('under the `[setup]` project');
     expect(body).not.toContain('Add two repository secrets');
+  });
+});
+
+describe('buildBootstrapPRBody — local setup snippet', () => {
+  it('shows the exact config this run wrote, webServer block included', () => {
+    const configSource = "import { defineConfig } from '@playwright/test';\nexport default defineConfig({ webServer: { command: 'npm run dev' } });\n";
+    const body = buildBootstrapPRBody(['Open /'], [], [], [], [], { ...base, withAuth: false, createdConfig: true, authBlocked: [], configSource });
+    expect(body).toContain("webServer: { command: 'npm run dev' }");
+    expect(body).toContain('And add a `playwright.config.ts`');
+  });
+
+  it('does not claim anything about start scripts when no source was passed', () => {
+    const body = buildBootstrapPRBody(['Open /'], [], [], [], [], { ...base, withAuth: false, createdConfig: true, authBlocked: [] });
+    expect(body).toContain("testDir: 'e2e'");
+    expect(body).toContain("baseURL: 'http://localhost:3000'");
+    expect(body).not.toContain('webServer');
+  });
+
+  it('points at the committed config instead of asking for one when the PR includes it (auth)', () => {
+    const body = buildBootstrapPRBody(['Open /'], [], [], [], [], { ...base, withAuth: true, createdConfig: true, authBlocked: [], configSource: 'x' });
+    expect(body).not.toContain('And add a `playwright.config.ts`');
+    expect(body).toContain('The `playwright.config.ts` in this PR');
   });
 });
 
@@ -186,7 +214,7 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   // get the generated config (with the setup project) in the PR.
   it('commits the generated config even when the customer already had auth.setup.ts', async () => {
     (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: false });
-    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(true);
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue('// generated config');
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const files: string[] = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][3];
     expect(files).toContain(path.join('/work', 'playwright.config.ts'));
@@ -195,7 +223,7 @@ describe('runBootstrap — auth scaffold + config commit', () => {
 
   it('commits the scaffold it wrote, and not when it kept the customer file', async () => {
     (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
-    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const files: string[] = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][3];
     expect(files).toContain('/work/e2e/auth.setup.ts');
@@ -204,7 +232,7 @@ describe('runBootstrap — auth scaffold + config commit', () => {
 
   it('signs in once before running the suite when a generated spec needs a session', async () => {
     (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
-    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     expect(testRunner.ensureAuthSession).toHaveBeenCalledWith('/work', config);
     const order = [
@@ -218,7 +246,7 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   // healing disabled, and a failed sign-in pass must relabel the ENOENTs.
   it('still classifies auth failures with maxRetries 0 and relabels them after a failed sign-in', async () => {
     (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
-    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
     (testRunner.ensureAuthSession as jest.Mock).mockResolvedValue({ status: 'failed', output: 'TimeoutError: login' });
     (testRunner.runTests as jest.Mock).mockResolvedValue([
       { filename: 'expenses.spec.ts', passed: false, duration: 1, error: 'ENOENT playwright/.auth/user.json' },
@@ -238,7 +266,7 @@ describe('runBootstrap — auth scaffold + config commit', () => {
 
   it('passes the protection record to writeTests and healing, and reports renamed files in the PR', async () => {
     (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
-    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
     (llm.bootstrapTests as jest.Mock).mockResolvedValueOnce([{ ...authedSpec }]); // fresh object: the guard mutates filename
     // Emulate the write-time guard renaming the colliding file.
     (testRunner.writeTests as jest.Mock).mockImplementationOnce(async (tests, _w, _d, protect) => {
@@ -257,7 +285,7 @@ describe('runBootstrap — auth scaffold + config commit', () => {
 
   it('hands the same protection record to the healer so heals cannot overwrite either', async () => {
     (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
-    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
     (testRunner.runTests as jest.Mock).mockResolvedValue([{ filename: 'expenses.spec.ts', passed: false, duration: 1, error: 'boom' }]);
     await runBootstrap({ ...config, maxRetries: 1 }, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const protectToWrite = (testRunner.writeTests as jest.Mock).mock.calls[0][3];
@@ -268,7 +296,7 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   it('drops a model-generated file named auth.setup.ts', async () => {
     (llm.bootstrapTests as jest.Mock).mockResolvedValueOnce([{ ...authedSpec, filename: 'auth.setup.ts' }, authedSpec]);
     (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
-    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const written = (testRunner.writeTests as jest.Mock).mock.calls[0][0];
     expect(written.map((t: { filename: string }) => t.filename)).toEqual(['expenses.spec.ts']);

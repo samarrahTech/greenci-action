@@ -1,5 +1,5 @@
 import * as exec from '@actions/exec';
-import { writeTests, runTests, cleanupTests, ensureAuthSession } from '../src/test-runner';
+import { writeTests, runTests, cleanupTests, ensureAuthSession, detectDevServer, playwrightConfigSource } from '../src/test-runner';
 import { ActionConfig, GeneratedTest } from '../src/types';
 
 jest.mock('@actions/core');
@@ -9,6 +9,7 @@ const mockExistsSync = jest.fn();
 const mockMkdirSync = jest.fn();
 const mockWriteFileSync = jest.fn();
 const mockUnlinkSync = jest.fn();
+const mockReadFileSync = jest.fn();
 jest.mock('fs', () => {
   const actual = jest.requireActual('fs');
   return {
@@ -17,6 +18,7 @@ jest.mock('fs', () => {
     mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
     writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
     unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
+    readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
   };
 });
 
@@ -281,10 +283,13 @@ describe('ensurePlaywrightConfig', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('writes a minimal config when none exists', () => {
+  beforeEach(() => mockReadFileSync.mockReset());
+
+  it('writes a minimal config when none exists and returns its source', () => {
     mockExistsSync.mockReturnValue(false);
-    const created = ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e');
-    expect(created).toBe(true);
+    const created = ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e', false, null);
+    expect(created).toContain("baseURL: 'http://localhost:4000'");
+    expect(mockWriteFileSync).toHaveBeenCalledWith(expect.stringContaining('playwright.config.ts'), created, 'utf-8');
     expect(mockWriteFileSync).toHaveBeenCalledWith(
       expect.stringContaining('playwright.config.ts'),
       expect.stringContaining("baseURL: 'http://localhost:4000'"),
@@ -292,10 +297,50 @@ describe('ensurePlaywrightConfig', () => {
     );
   });
 
+  // GC-029: local runs need the app started; CI already has it running.
+  it('adds a webServer block that starts the app when a dev script was detected', () => {
+    mockExistsSync.mockReturnValue(false);
+    ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e', false, { command: 'npm run dev' });
+    const config: string = mockWriteFileSync.mock.calls[0][1];
+    expect(config).toContain("command: 'npm run dev'");
+    expect(config).toContain("url: 'http://localhost:4000'");
+    expect(config).toContain('reuseExistingServer: true');
+    // Never in CI: Playwright would spawn a second server whenever `/` is not 2xx.
+    expect(config).toContain('webServer: process.env.CI\n    ? undefined');
+    expect(config).not.toContain('No start script was found');
+  });
+
+  it('explains what to add instead of guessing when no start script exists', () => {
+    mockExistsSync.mockReturnValue(false);
+    ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e', false, null);
+    const config: string = mockWriteFileSync.mock.calls[0][1];
+    expect(config).not.toContain('\n  webServer: {');
+    expect(config).toContain('No start script was found in package.json');
+    expect(config).toContain("webServer: { command: '<your start command>', url: 'http://localhost:4000'");
+  });
+
+  it('writes a plain run-only config, with no detection and no advice, when devServer is not given', () => {
+    mockExistsSync.mockReturnValue(false);
+    ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e');
+    const config: string = mockWriteFileSync.mock.calls[0][1];
+    expect(mockReadFileSync).not.toHaveBeenCalled();
+    expect(config).not.toContain('webServer');
+  });
+
+  it('escapes quotes and newlines in interpolated values', () => {
+    mockExistsSync.mockReturnValue(false);
+    const ts = jest.requireActual('typescript');
+    ensurePlaywrightConfig('/work', "http://localhost:3000/it's\n", "e2e'x", true, { command: "echo 'hi'" });
+    const config: string = mockWriteFileSync.mock.calls[0][1];
+    const { diagnostics } = ts.transpileModule(config, { reportDiagnostics: true });
+    expect(diagnostics ?? []).toEqual([]);
+    expect(config).toContain("baseURL: 'http://localhost:3000/it\\'s\\n'");
+  });
+
   it('does nothing when a config already exists', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('playwright.config.js'));
     const created = ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e');
-    expect(created).toBe(false);
+    expect(created).toBeNull();
     expect(mockWriteFileSync).not.toHaveBeenCalled();
   });
 });
@@ -327,5 +372,63 @@ describe('ensurePlaywright', () => {
     expect(installed).toBe(false);
     const npmCalls = (exec.exec as jest.Mock).mock.calls.filter((c) => c[0] === 'npm');
     expect(npmCalls).toHaveLength(0);
+  });
+});
+
+describe('detectDevServer', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReadFileSync.mockReset();
+    mockExistsSync.mockReturnValue(false);
+  });
+
+  const pkg = (scripts: Record<string, string>) => mockReadFileSync.mockReturnValue(JSON.stringify({ scripts }));
+
+  it('prefers dev, then start, then serve, then preview', () => {
+    pkg({ preview: 'x', serve: 'x', start: 'x', dev: 'x' });
+    expect(detectDevServer('/work')).toEqual({ command: 'npm run dev' });
+    pkg({ preview: 'x', serve: 'x', start: 'x' });
+    expect(detectDevServer('/work')).toEqual({ command: 'npm start' });
+    pkg({ preview: 'x', serve: 'x' });
+    expect(detectDevServer('/work')).toEqual({ command: 'npm run serve' });
+    pkg({ preview: 'x' });
+    expect(detectDevServer('/work')).toEqual({ command: 'npm run preview' });
+  });
+
+  it('uses the package manager the lockfile points at', () => {
+    pkg({ dev: 'x' });
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('pnpm-lock.yaml'));
+    expect(detectDevServer('/work')).toEqual({ command: 'pnpm dev' });
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('yarn.lock'));
+    expect(detectDevServer('/work')).toEqual({ command: 'yarn dev' });
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('bun.lock'));
+    expect(detectDevServer('/work')).toEqual({ command: 'bun dev' });
+  });
+
+  it('returns null with no scripts, no package.json, or unparseable JSON', () => {
+    pkg({ build: 'x', test: 'x' });
+    expect(detectDevServer('/work')).toBeNull();
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+    expect(detectDevServer('/work')).toBeNull();
+    mockReadFileSync.mockReturnValue('{not json');
+    expect(detectDevServer('/work')).toBeNull();
+  });
+});
+
+describe('playwrightConfigSource', () => {
+  it('is valid TypeScript with and without the webServer block and the setup project', () => {
+    const ts = jest.requireActual('typescript');
+    for (const devServer of [{ command: 'npm run dev' }, null, undefined]) {
+      for (const withAuthSetup of [true, false]) {
+        const src = playwrightConfigSource({ baseUrl: 'http://localhost:3000', testDir: 'e2e', withAuthSetup, devServer });
+        const { diagnostics } = ts.transpileModule(src, { reportDiagnostics: true });
+        expect(diagnostics ?? []).toEqual([]);
+        expect(src.includes("name: 'setup'")).toBe(withAuthSetup);
+        expect(src.includes('\n  webServer: process.env.CI')).toBe(Boolean(devServer));
+        expect(src.includes('No start script was found')).toBe(devServer === null);
+      }
+    }
   });
 });

@@ -33841,7 +33841,10 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     }
     // Zero-test repos won't have Playwright or a config yet — set them up
     const installedPlaywright = await (0, test_runner_1.ensurePlaywright)(workDir);
-    const createdConfig = (0, test_runner_1.ensurePlaywrightConfig)(workDir, config.baseUrl, config.testDir, withAuth);
+    // This config may be committed (auth) or shown in the PR: give it the
+    // local-run webServer block when the repo tells us how to start the app.
+    const configSource = (0, test_runner_1.ensurePlaywrightConfig)(workDir, config.baseUrl, config.testDir, withAuth, (0, test_runner_1.detectDevServer)(workDir));
+    const createdConfig = configSource !== null;
     // Specs run one file at a time, so produce the session up front instead of
     // relying on the customer's config to route each new spec through setup.
     const authSession = withAuth ? await (0, test_runner_1.ensureAuthSession)(workDir, config) : null;
@@ -33909,6 +33912,7 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
             authSetupOutput: authSession?.output,
             renamed: protect.renamed,
             rejected,
+            configSource: configSource ?? undefined,
         });
         const result = await (0, git_ops_1.createBootstrapPR)(token, repo.owner, repo.repo, commitFiles, workDir, body);
         prUrl = result.prUrl;
@@ -34015,8 +34019,14 @@ function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, s
         body += '### One-time setup to run these locally\n';
         body += 'This repo didn\'t have Playwright yet (GreenCI installed it just for this run):\n\n';
         body += '```bash\nnpm install -D @playwright/test\nnpx playwright install chromium\n```\n\n';
-        if (setup.createdConfig) {
-            body += `And add a \`playwright.config.ts\`:\n\n\`\`\`ts\nimport { defineConfig } from '@playwright/test';\n\nexport default defineConfig({\n  testDir: '${setup.testDir}',\n  use: { baseURL: '${setup.baseUrl}' },\n});\n\`\`\`\n\n`;
+        // With auth the generated config is part of this PR (it carries the
+        // setup project); otherwise the customer adds it by hand.
+        if (setup.createdConfig && setup.withAuth) {
+            body += 'The `playwright.config.ts` in this PR wires the login setup and, when a start script was found, starts your app for local runs (`webServer`).\n\n';
+        }
+        else if (setup.createdConfig) {
+            const snippet = setup.configSource ?? (0, test_runner_1.playwrightConfigSource)({ baseUrl: setup.baseUrl, testDir: setup.testDir });
+            body += `And add a \`playwright.config.ts\`:\n\n\`\`\`ts\n${snippet.trimEnd()}\n\`\`\`\n\n`;
         }
         body += `Then run the suite with \`npx playwright test\`.\n\n`;
     }
@@ -36966,6 +36976,7 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     }
     // 3. Run tests (installing Playwright + a minimal config if the repo lacks them)
     await (0, test_runner_1.ensurePlaywright)(workDir);
+    // Run-only config (never shown or committed): no dev-server detection.
     (0, test_runner_1.ensurePlaywrightConfig)(workDir, config.baseUrl, config.testDir);
     // Specs run one file at a time: give authenticated ones a session up front
     // (same reason as bootstrap — see ensureAuthSession).
@@ -37057,6 +37068,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ensurePlaywright = ensurePlaywright;
+exports.detectDevServer = detectDevServer;
+exports.playwrightConfigSource = playwrightConfigSource;
 exports.ensurePlaywrightConfig = ensurePlaywrightConfig;
 exports.runPlaywrightFile = runPlaywrightFile;
 exports.ensureAuthSession = ensureAuthSession;
@@ -37099,36 +37112,104 @@ async function ensurePlaywright(workDir) {
     return installed;
 }
 /**
- * Without a Playwright config, relative page.goto('/...') calls fail because
- * there is no baseURL. If the repo has no config, write a minimal one so the
- * generated tests run. Returns true if a config was created (callers should
- * tell the user to add a permanent one).
+ * Best-effort guess at the command that starts the app, from package.json
+ * scripts and the lockfile. Null when there is nothing to guess from — the
+ * generated config then explains what to add instead of guessing wrong.
  */
-function ensurePlaywrightConfig(workDir, baseUrl, testDir, withAuthSetup = false) {
-    const exists = ['playwright.config.ts', 'playwright.config.js', 'playwright.config.mjs'].some((f) => fs.existsSync(path.join(workDir, f)));
-    if (exists)
-        return false;
-    const projects = withAuthSetup
+function detectDevServer(workDir) {
+    let scripts = {};
+    try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(workDir, 'package.json'), 'utf-8'));
+        if (pkg && typeof pkg.scripts === 'object' && pkg.scripts)
+            scripts = pkg.scripts;
+    }
+    catch {
+        return null;
+    }
+    const script = ['dev', 'start', 'serve', 'preview'].find((s) => typeof scripts[s] === 'string');
+    if (!script)
+        return null;
+    const has = (f) => fs.existsSync(path.join(workDir, f));
+    const runner = has('pnpm-lock.yaml') ? 'pnpm' : has('yarn.lock') ? 'yarn' : has('bun.lockb') || has('bun.lock') ? 'bun' : 'npm';
+    // `npm start` is special-cased by npm; everything else needs `run`.
+    const command = runner === 'npm' && script !== 'start' ? `npm run ${script}` : `${runner} ${script}`;
+    return { command };
+}
+/** Single-quoted TS string literal: inputs come from action inputs and package.json. */
+function q(value) {
+    return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, '\\n')}'`;
+}
+/**
+ * Source of the minimal config GreenCI writes (and shows in the PR body).
+ * The webServer block is what makes `npx playwright test` work on a laptop:
+ * without it, a local run fails with ECONNREFUSED unless the app happens to
+ * be up. It is gated on `!process.env.CI`: in CI the app is already running
+ * (the action sets CI=true for every Playwright run), and Playwright only
+ * treats a 2xx/3xx/400-403 root response as "already up" — an app whose `/`
+ * is a 404 would otherwise make every spec file spawn a second server.
+ *
+ * `devServer` null: nothing to start was found, say so in a comment.
+ * `devServer` undefined: nobody looked (PR-body fallback) — no comment.
+ */
+function playwrightConfigSource(opts) {
+    const projects = opts.withAuthSetup
         ? `
   projects: [
     { name: 'setup', testMatch: /auth\\.setup\\.ts/ },
     { name: 'chromium', dependencies: ['setup'] },
   ],`
         : '';
-    const config = `import { defineConfig } from '@playwright/test';
+    let webServer = '';
+    if (opts.devServer) {
+        webServer = `
+  // Local runs: start the app if nothing is listening on baseURL yet. Skipped
+  // in CI, where the app is started by the workflow before the tests run.
+  // Adjust the command if your app starts differently.
+  webServer: process.env.CI
+    ? undefined
+    : {
+        command: ${q(opts.devServer.command)},
+        url: ${q(opts.baseUrl)},
+        reuseExistingServer: true,
+        timeout: 120_000,
+      },`;
+    }
+    else if (opts.devServer === null) {
+        webServer = `
+  // No start script was found in package.json, so local runs expect the app
+  // to already be listening on baseURL. To let Playwright start it, add:
+  //   webServer: { command: '<your start command>', url: ${q(opts.baseUrl)}, reuseExistingServer: true },`;
+    }
+    return `import { defineConfig } from '@playwright/test';
 
 // Generated by GreenCI for this run. Add your own playwright.config.ts to customize.
 export default defineConfig({
-  testDir: '${testDir}',${projects}
+  testDir: ${q(opts.testDir)},${projects}
   use: {
-    baseURL: '${baseUrl}',
+    baseURL: ${q(opts.baseUrl)},
     trace: 'retain-on-failure',
-  },
+  },${webServer}
 });
 `;
+}
+/**
+ * Without a Playwright config, relative page.goto('/...') calls fail because
+ * there is no baseURL. If the repo has no config, write a minimal one so the
+ * generated tests run. Returns the source it wrote (callers show it to the
+ * customer or commit it), or null when the repo already had a config.
+ *
+ * `devServer`: pass `detectDevServer(workDir)` when the file is for the
+ * customer (bootstrap); `undefined` for a run-only config nobody will see.
+ */
+function ensurePlaywrightConfig(workDir, baseUrl, testDir, withAuthSetup = false, devServer) {
+    const exists = ['playwright.config.ts', 'playwright.config.js', 'playwright.config.mjs'].some((f) => fs.existsSync(path.join(workDir, f)));
+    if (exists)
+        return null;
+    const config = playwrightConfigSource({ baseUrl, testDir, withAuthSetup, devServer });
     fs.writeFileSync(path.join(workDir, 'playwright.config.ts'), config, 'utf-8');
-    core.info(`⚙️ No Playwright config found — wrote a minimal playwright.config.ts (baseURL: ${baseUrl})`);
-    return true;
+    core.info(`⚙️ No Playwright config found — wrote a minimal playwright.config.ts (baseURL: ${baseUrl}` +
+        (devServer ? `, local webServer: ${devServer.command})` : devServer === null ? ', no start script in package.json for a local webServer)' : ')'));
+    return config;
 }
 /**
  * One Playwright invocation for a single file, with the action's credentials
