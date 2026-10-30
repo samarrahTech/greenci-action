@@ -6,13 +6,45 @@ import type { RenamedTest } from './existing-tests';
  * first run works out of the box. Returns true if anything was installed.
  */
 export declare function ensurePlaywright(workDir: string): Promise<boolean>;
+/** How the generated config can start the app for a local run. */
+export interface DevServerHint {
+    /** e.g. `npm run dev` */
+    command: string;
+}
+/**
+ * Best-effort guess at the command that starts the app, from package.json
+ * scripts and the lockfile. Null when there is nothing to guess from — the
+ * generated config then explains what to add instead of guessing wrong.
+ */
+export declare function detectDevServer(workDir: string): DevServerHint | null;
+/**
+ * Source of the minimal config GreenCI writes (and shows in the PR body).
+ * The webServer block is what makes `npx playwright test` work on a laptop:
+ * without it, a local run fails with ECONNREFUSED unless the app happens to
+ * be up. It is gated on `!process.env.CI`: in CI the app is already running
+ * (the action sets CI=true for every Playwright run), and Playwright only
+ * treats a 2xx/3xx/400-403 root response as "already up" — an app whose `/`
+ * is a 404 would otherwise make every spec file spawn a second server.
+ *
+ * `devServer` null: nothing to start was found, say so in a comment.
+ * `devServer` undefined: nobody looked (PR-body fallback) — no comment.
+ */
+export declare function playwrightConfigSource(opts: {
+    baseUrl: string;
+    testDir: string;
+    withAuthSetup?: boolean;
+    devServer?: DevServerHint | null;
+}): string;
 /**
  * Without a Playwright config, relative page.goto('/...') calls fail because
  * there is no baseURL. If the repo has no config, write a minimal one so the
- * generated tests run. Returns true if a config was created (callers should
- * tell the user to add a permanent one).
+ * generated tests run. Returns the source it wrote (callers show it to the
+ * customer or commit it), or null when the repo already had a config.
+ *
+ * `devServer`: pass `detectDevServer(workDir)` when the file is for the
+ * customer (bootstrap); `undefined` for a run-only config nobody will see.
  */
-export declare function ensurePlaywrightConfig(workDir: string, baseUrl: string, testDir: string, withAuthSetup?: boolean): boolean;
+export declare function ensurePlaywrightConfig(workDir: string, baseUrl: string, testDir: string, withAuthSetup?: boolean, devServer?: DevServerHint | null): string | null;
 /**
  * One Playwright invocation for a single file, with the action's credentials
  * stripped from the child environment (test-env.ts). Both the suite run and the

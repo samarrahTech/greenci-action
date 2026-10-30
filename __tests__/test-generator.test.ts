@@ -8,7 +8,7 @@ jest.mock('../src/test-runner', () => ({
   writeTests: jest.fn().mockResolvedValue(['/tmp/e2e/dashboard.spec.ts']),
   runTests: jest.fn().mockResolvedValue([{ filename: 'e2e/test.spec.ts', passed: true, duration: 100 }]),
   ensurePlaywright: jest.fn().mockResolvedValue(false),
-  ensurePlaywrightConfig: jest.fn().mockReturnValue(false),
+  ensurePlaywrightConfig: jest.fn().mockReturnValue(null),
 }));
 
 jest.mock('../src/self-healer', () => ({

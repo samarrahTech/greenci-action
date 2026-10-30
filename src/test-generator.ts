@@ -94,6 +94,7 @@ export async function generateAndRunTests(
 
   // 3. Run tests (installing Playwright + a minimal config if the repo lacks them)
   await ensurePlaywright(workDir);
+  // Run-only config (never shown or committed): no dev-server detection.
   ensurePlaywrightConfig(workDir, config.baseUrl, config.testDir);
   // Specs run one file at a time: give authenticated ones a session up front
   // (same reason as bootstrap — see ensureAuthSession).
