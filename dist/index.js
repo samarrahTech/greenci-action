@@ -37238,7 +37238,9 @@ async function ensurePlaywright(workDir) {
  * browser, missing system library, timeout) means "install".
  */
 const CHROMIUM_PROBE = "require('@playwright/test').chromium.launch({ timeout: 15000 })" +
-    '.then((b) => b.close()).then(() => process.exit(0), () => process.exit(1))';
+    '.then((b) => b.close())' +
+    // Print the launch error: without it the log can only say "no output".
+    '.then(() => process.exit(0), (e) => { console.error(String(e).split("\\n")[0]); process.exit(1); })';
 async function chromiumLaunches(workDir) {
     let stderr = '';
     try {
