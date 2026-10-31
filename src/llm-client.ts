@@ -1,5 +1,5 @@
 import * as core from '@actions/core';
-import { ActionConfig, ChangeContext, GeneratedTest, HealVerdict, ILLMClient, SelfHealRequest } from './types';
+import { ActionConfig, ChangeContext, GeneratedTest, GenerateResult, HealVerdict, ILLMClient, SelfHealRequest } from './types';
 import { AnthropicClient } from './providers/anthropic';
 import { OpenAIClient } from './providers/openai';
 
@@ -82,7 +82,7 @@ class GreenCIClient implements ILLMClient {
     }
   }
 
-  async generateTests(context: ChangeContext, config: ActionConfig): Promise<GeneratedTest[]> {
+  async generateTests(context: ChangeContext, config: ActionConfig): Promise<GenerateResult> {
     core.info(`Calling GreenCI API at ${config.greenCIApiUrl}/v1/generate`);
 
     try {
@@ -92,7 +92,7 @@ class GreenCIClient implements ILLMClient {
         .filter(Boolean)
         .join('\n');
 
-      const response = await fetch(`${config.greenCIApiUrl}/v1/generate`, {
+      const post = () => fetch(`${config.greenCIApiUrl}/v1/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -115,16 +115,33 @@ class GreenCIClient implements ILLMClient {
         }),
       });
 
-      if (!response.ok) {
+      // 502 NO_TESTS_GENERATED means the model answered without usable test
+      // code (a real decline is a 200 with `skipped`). That is usually a
+      // one-off, so retry once. If it repeats, report it on the PR instead of
+      // failing the caller's CI: the PR did nothing wrong.
+      let response = await post();
+      for (let attempt = 1; !response.ok; attempt++) {
         const body = await readErrorBody(response);
+        const noTests = response.status === 502 && body.includes('NO_TESTS_GENERATED');
+        if (noTests && attempt === 1) {
+          core.info('GreenCI API returned no usable test code; retrying once.');
+          response = await post();
+          continue;
+        }
+        if (noTests) {
+          return { tests: [], generationError: 'the model returned no usable test code twice' };
+        }
         throw new Error(
           `GreenCI test generation failed (HTTP ${response.status})${body ? `: ${body}` : ''}. ` +
             `Check that your greenci-api-key is valid and your plan has remaining quota. No tests were generated.`,
         );
       }
 
-      const data = (await response.json()) as { tests: GeneratedTest[] };
-      return data.tests;
+      const data = (await response.json()) as { tests: GeneratedTest[]; skipped?: { reason?: string } };
+      if (data.tests.length === 0 && data.skipped?.reason) {
+        return { tests: [], skippedReason: data.skipped.reason };
+      }
+      return { tests: data.tests };
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('GreenCI test generation failed')) {
         throw error;

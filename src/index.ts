@@ -144,8 +144,11 @@ async function run(): Promise<void> {
       core.setOutput('report-url', reportUrl);
     }
 
-    // 7. Upload run results + traces to the dashboard
-    if (config.apiKey) {
+    // 7. Upload run results + traces to the dashboard. A run with zero tests
+    // (declined, failed, or every test rejected as unfalsifiable) ran nothing;
+    // recording it as 0/0 passing would read as a green run on the dashboard.
+    const ranNothing = report.testsGenerated === 0;
+    if (config.apiKey && !ranNothing) {
       await uploadResults(config.greenCIApiUrl, config.apiKey, prContext, report);
     }
     const projectId = core.getInput('project-id');

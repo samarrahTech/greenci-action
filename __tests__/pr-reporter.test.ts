@@ -128,4 +128,37 @@ describe('postReport', () => {
     const body = mockOctokit.rest.issues.createComment.mock.calls[0][0].body;
     expect(body).toContain('## ✅');
   });
+
+  describe('zero-test runs say why', () => {
+    const empty: RunReport = { ...report, testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, tests: [], committedFiles: [] };
+    const bodyFor = async (r: RunReport) => {
+      mockOctokit.rest.issues.listComments.mockResolvedValue({ data: [] });
+      mockOctokit.rest.issues.createComment.mockResolvedValue({ data: { html_url: 'url' } });
+      await postReport('mock-token', prContext, r);
+      return mockOctokit.rest.issues.createComment.mock.calls[0][0].body as string;
+    };
+
+    it('shows the decline reason with a skipped status, not a green check', async () => {
+      const body = await bodyFor({ ...empty, skippedReason: 'Only PostHog config changed.' });
+      expect(body).toContain('## ⏭️ GreenCI E2E Test Report');
+      expect(body).toContain("Nothing to test in this diff.** Model's reason: `Only PostHog config changed.`");
+    });
+
+    it('renders the model-supplied reason inert, on one line, without backticks escaping the span', async () => {
+      const body = await bodyFor({ ...empty, skippedReason: 'see ![x](https://evil/p.png)\n`@org/team`' });
+      expect(body).toContain("`see ![x](https://evil/p.png) '@org/team'`");
+    });
+
+    it('does not show a green check when every generated test was rejected', async () => {
+      const body = await bodyFor({ ...empty, rejectedTests: [{ filename: 'a.spec.ts', reason: 'no expect()' }] });
+      expect(body).toContain('## ⚠️ GreenCI E2E Test Report');
+    });
+
+    it('shows a generation failure as a warning that is not the PR\'s fault', async () => {
+      const body = await bodyFor({ ...empty, generationError: 'the model returned no usable test code twice' });
+      expect(body).toContain('## ⚠️ GreenCI E2E Test Report');
+      expect(body).toContain('could not generate tests for this diff');
+      expect(body).toContain('Your PR did not cause this');
+    });
+  });
 });

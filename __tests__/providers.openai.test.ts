@@ -50,7 +50,7 @@ describe('OpenAIClient', () => {
       openaiResponse('```typescript\n// filename: app.spec.ts\ntest.describe("App", () => {});\n```'),
     );
 
-    const tests = await client.generateTests(mockContext, mockConfig);
+    const { tests } = await client.generateTests(mockContext, mockConfig);
     expect(tests).toHaveLength(1);
     expect(tests[0].filename).toBe('app.spec.ts');
 
@@ -60,6 +60,23 @@ describe('OpenAIClient', () => {
     const body = JSON.parse(init.body);
     expect(body.model).toBe('gpt-4o');
     expect(body.messages[0].role).toBe('system');
+  });
+
+  it('returns the decline reason when the model declines the diff', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue(openaiResponse('NO_TESTS: only analytics config changed'));
+    const client = new OpenAIClient('sk-test');
+    await expect(client.generateTests(mockContext, mockConfig)).resolves.toEqual({
+      tests: [],
+      skippedReason: 'only analytics config changed',
+    });
+  });
+
+  it('reports a generation error, not a prose spec, when the model answers in prose', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue(openaiResponse('No tests are needed for this change.'));
+    const client = new OpenAIClient('sk-test');
+    const result = await client.generateTests(mockContext, mockConfig);
+    expect(result.tests).toEqual([]);
+    expect(result.generationError).toBeDefined();
   });
 
   it('respects the llm-model override', async () => {

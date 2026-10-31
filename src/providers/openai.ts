@@ -1,5 +1,5 @@
 import * as core from '@actions/core';
-import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SelfHealRequest } from '../types';
+import { ActionConfig, ChangeContext, GeneratedTest, GenerateResult, ILLMClient, SelfHealRequest } from '../types';
 import {
   TEST_GENERATION_SYSTEM,
   BOOTSTRAP_SYSTEM,
@@ -9,6 +9,7 @@ import {
   buildGeneratePrompt,
   buildHealPrompt,
   parseTestsFromResponse,
+  parseGenerateResponse,
   parseHealVerdict,
   extractCode,
 } from '../prompts';
@@ -68,11 +69,11 @@ export class OpenAIClient implements ILLMClient {
     return content;
   }
 
-  async generateTests(context: ChangeContext, config: ActionConfig): Promise<GeneratedTest[]> {
+  async generateTests(context: ChangeContext, config: ActionConfig): Promise<GenerateResult> {
     const model = config.llmModel || DEFAULT_MODEL;
     core.info(`Generating tests via OpenAI API (${model}) — code stays between your runner and OpenAI`);
     const content = await this.complete(TEST_GENERATION_SYSTEM, buildGeneratePrompt(context, config.baseUrl), model);
-    return parseTestsFromResponse(content);
+    return parseGenerateResponse(content);
   }
 
   async bootstrapTests(

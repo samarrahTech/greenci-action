@@ -23,7 +23,17 @@ export async function generateAndRunTests(
 
   // 1. Generate tests
   core.info('🧪 Generating tests...');
-  const proposed = await llmClient.generateTests(context, config);
+  const {
+    tests: proposed,
+    skippedReason,
+    generationError,
+  } = await llmClient.generateTests(context, config);
+  if (skippedReason) core.notice(`GreenCI: nothing to test in this diff. ${skippedReason}`);
+  if (generationError) {
+    core.warning(
+      `GreenCI could not generate tests for this diff (${generationError}). Skipping; re-run the job to retry.`
+    );
+  }
   // Drop tests with no falsifiable assertion before they reach disk (see
   // assertion-lint.ts): an always-green spec is a trust problem, not coverage.
   const { kept: generatedTests, rejected: rejectedTests } = rejectTautologies(proposed);
@@ -43,6 +53,8 @@ export async function generateAndRunTests(
       tests: [],
       committedFiles: [],
       rejectedTests,
+      skippedReason,
+      generationError,
     };
   }
 

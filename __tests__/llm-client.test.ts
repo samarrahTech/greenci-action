@@ -83,7 +83,7 @@ describe('GreenCIClient', () => {
       });
 
       const result = await client.generateTests(mockContext, mockConfig);
-      expect(result).toEqual(mockTests);
+      expect(result).toEqual({ tests: mockTests });
       expect(global.fetch).toHaveBeenCalledWith(
         'https://api.greenci.ai/v1/generate',
         expect.objectContaining({ method: 'POST' })
@@ -95,6 +95,54 @@ describe('GreenCIClient', () => {
       await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow(
         'GreenCI test generation failed (HTTP 500)'
       );
+    });
+
+    it('returns the decline reason when the API says the diff has nothing to test', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ tests: [], skipped: { reason: 'Only PostHog config changed.' } }),
+      });
+      await expect(client.generateTests(mockContext, mockConfig)).resolves.toEqual({
+        tests: [],
+        skippedReason: 'Only PostHog config changed.',
+      });
+    });
+
+    const noTests502 = () => ({
+      ok: false,
+      status: 502,
+      text: async () =>
+        JSON.stringify({ error: { code: 'NO_TESTS_GENERATED', message: 'The model did not return usable test code. Please retry.' } }),
+    });
+
+    it('retries once after a 502 NO_TESTS_GENERATED and uses the retry', async () => {
+      const mockTests = [{ filename: 'a.spec.ts', code: 'c', description: 'd', confidence: 0.9 }];
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce(noTests502())
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ tests: mockTests }) });
+      await expect(client.generateTests(mockContext, mockConfig)).resolves.toEqual({ tests: mockTests });
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports a generation error instead of failing CI when the retry also returns NO_TESTS_GENERATED', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue(noTests502());
+      const result = await client.generateTests(mockContext, mockConfig);
+      expect(result.tests).toEqual([]);
+      expect(result.generationError).toContain('no usable test code');
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('still throws on other 502s, without retrying', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 502, text: async () => 'Bad Gateway' });
+      await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow('GreenCI test generation failed (HTTP 502)');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws when the retry fails with a different error', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce(noTests502())
+        .mockResolvedValueOnce({ ok: false, status: 429, text: async () => 'quota' });
+      await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow('GreenCI test generation failed (HTTP 429)');
     });
 
     it('should throw on fetch failure', async () => {

@@ -1,4 +1,4 @@
-import { parseTestsFromResponse, parseHealVerdict, extractCode, buildGeneratePrompt, buildHealPrompt } from '../src/prompts';
+import { parseTestsFromResponse, parseNoTestsReason, parseGenerateResponse, parseHealVerdict, extractCode, buildGeneratePrompt, buildHealPrompt } from '../src/prompts';
 import { ChangeContext } from '../src/types';
 
 const context: ChangeContext = {
@@ -52,10 +52,24 @@ describe('parseTestsFromResponse', () => {
     expect(tests[0].filename).toBe('test-1.spec.ts');
   });
 
-  it('treats raw content as one test when no code blocks exist', () => {
-    const tests = parseTestsFromResponse('just some code');
+  it('never writes a NO_TESTS answer out as a spec', () => {
+    expect(parseTestsFromResponse('NO_TESTS: only a CI workflow changed')).toEqual([]);
+  });
+
+  it('falls back to a generated name when the filename hint has no spec suffix', () => {
+    const tests = parseTestsFromResponse('```ts\n// filename: login flow\ntest("a", async () => {});\n```');
+    expect(tests[0].filename).toBe('test-1.spec.ts');
+  });
+
+  it('never writes prose out as a spec when no code blocks exist', () => {
+    expect(parseTestsFromResponse('No tests are needed for this change.')).toEqual([]);
+  });
+
+  it('accepts other fence tags and CRLF, and skips fenced blocks that are not tests', () => {
+    const content = '```tsx\r\n// filename: a.spec.ts\r\ntest("a", async () => {});\r\n```\n```json\n{"version": "2"}\n```';
+    const tests = parseTestsFromResponse(content);
     expect(tests).toHaveLength(1);
-    expect(tests[0].filename).toBe('generated.spec.ts');
+    expect(tests[0].filename).toBe('a.spec.ts');
   });
 });
 
@@ -89,5 +103,37 @@ describe('extractCode', () => {
 
   it('returns trimmed content when no code block', () => {
     expect(extractCode('  raw code  ')).toBe('raw code');
+  });
+});
+
+describe('parseNoTestsReason', () => {
+  it('returns the reason from a NO_TESTS line, tolerating preamble and CRLF', () => {
+    expect(parseNoTestsReason('Reviewed the diff.\r\n  NO_TESTS:  dependency bump only \r\n')).toBe('dependency bump only');
+  });
+
+  it('returns null without the marker or with an empty reason', () => {
+    expect(parseNoTestsReason('No tests needed.')).toBeNull();
+    expect(parseNoTestsReason('NO_TESTS:  ')).toBeNull();
+  });
+
+  it('caps the reason length', () => {
+    expect(parseNoTestsReason('NO_TESTS: ' + 'x'.repeat(1000))).toHaveLength(300);
+  });
+});
+
+describe('parseGenerateResponse', () => {
+  it('prefers code over a NO_TESTS line', () => {
+    const r = parseGenerateResponse('NO_TESTS: maybe\n```ts\ntest("a", async () => {});\n```');
+    expect(r.tests).toHaveLength(1);
+    expect(r.skippedReason).toBeUndefined();
+  });
+
+  it('honours NO_TESTS when the only fenced block is not a test', () => {
+    const r = parseGenerateResponse('NO_TESTS: dependency bump\n```json\n{"version":"2"}\n```');
+    expect(r).toEqual({ tests: [], skippedReason: 'dependency bump' });
+  });
+
+  it('flags a generation error for prose without the marker', () => {
+    expect(parseGenerateResponse('Here are my thoughts.').generationError).toBeDefined();
   });
 });

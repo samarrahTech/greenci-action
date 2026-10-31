@@ -120,10 +120,23 @@ export interface RunReport {
   suspectedBugs?: SuspectedBug[];
   /** Generated tests dropped before running: no assertion that could fail */
   rejectedTests?: RejectedTest[];
+  /** The model declined the diff: nothing in it is observable in a browser. */
+  skippedReason?: string;
+  /** Generation failed on GreenCI's side (not the PR's fault); the run was skipped. */
+  generationError?: string;
+}
+
+/** What a generate call produced. Zero tests is normal when either note is set. */
+export interface GenerateResult {
+  tests: GeneratedTest[];
+  /** The model answered NO_TESTS: the diff has nothing a browser test can observe. */
+  skippedReason?: string;
+  /** No usable test code came back even after a retry. */
+  generationError?: string;
 }
 
 export interface ILLMClient {
-  generateTests(context: ChangeContext, config: ActionConfig): Promise<GeneratedTest[]>;
+  generateTests(context: ChangeContext, config: ActionConfig): Promise<GenerateResult>;
   healTest(request: SelfHealRequest, config: ActionConfig): Promise<GeneratedTest>;
   migrateTest?(cypressSource: string, staticConversion: string, config: ActionConfig): Promise<string>;
   bootstrapTests?(
