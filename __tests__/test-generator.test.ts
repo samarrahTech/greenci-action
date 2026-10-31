@@ -31,6 +31,7 @@ import { generateAndRunTests } from '../src/test-generator';
 jest.mock('@actions/core', () => ({
   info: jest.fn(),
   warning: jest.fn(),
+  notice: jest.fn(),
   setFailed: jest.fn(),
   getInput: jest.fn(),
 }));
@@ -69,7 +70,7 @@ describe('generateAndRunTests', () => {
   };
 
   const mockLLMClient: ILLMClient = {
-    generateTests: jest.fn().mockResolvedValue([mockTest]),
+    generateTests: jest.fn().mockResolvedValue({ tests: [mockTest] }),
     healTest: jest.fn().mockResolvedValue(mockTest),
   };
 
@@ -90,7 +91,7 @@ describe('generateAndRunTests', () => {
       rejected: [{ filename: hollow.filename, reason: 'every assertion is unfalsifiable' }],
     });
     const client: ILLMClient = {
-      generateTests: jest.fn().mockResolvedValue([hollow, real]),
+      generateTests: jest.fn().mockResolvedValue({ tests: [hollow, real] }),
       healTest: jest.fn(),
     };
 
@@ -103,12 +104,32 @@ describe('generateAndRunTests', () => {
 
   it('should return empty report when no tests generated', async () => {
     const emptyClient: ILLMClient = {
-      generateTests: jest.fn().mockResolvedValue([]),
+      generateTests: jest.fn().mockResolvedValue({ tests: [] }),
       healTest: jest.fn(),
     };
 
     const report = await generateAndRunTests(mockContext, mockConfig, emptyClient, '/tmp');
     expect(report.testsGenerated).toBe(0);
     expect(report.tests).toHaveLength(0);
+  });
+
+  it('carries a declined diff into the report as skippedReason', async () => {
+    const client: ILLMClient = {
+      generateTests: jest.fn().mockResolvedValue({ tests: [], skippedReason: 'Only PostHog config changed.' }),
+      healTest: jest.fn(),
+    };
+    const report = await generateAndRunTests(mockContext, mockConfig, client, '/tmp');
+    expect(report.testsGenerated).toBe(0);
+    expect(report.skippedReason).toBe('Only PostHog config changed.');
+    expect(report.generationError).toBeUndefined();
+  });
+
+  it('carries a failed generation into the report as generationError', async () => {
+    const client: ILLMClient = {
+      generateTests: jest.fn().mockResolvedValue({ tests: [], generationError: 'the model returned no usable test code twice' }),
+      healTest: jest.fn(),
+    };
+    const report = await generateAndRunTests(mockContext, mockConfig, client, '/tmp');
+    expect(report.generationError).toBe('the model returned no usable test code twice');
   });
 });

@@ -1,4 +1,5 @@
-import { ChangeContext, GeneratedTest, HealVerdict } from './types';
+import { ChangeContext, GeneratedTest, GenerateResult, HealVerdict } from './types';
+import { ALLOWED_SUFFIX } from './safe-paths';
 
 /**
  * Prompts and response parsing for BYO-LLM providers (anthropic, openai).
@@ -35,7 +36,12 @@ export const TEST_GENERATION_SYSTEM = `You are an expert QA engineer specializin
 - Only assert things visible in the HTML. Don't assume server responses or dynamic content that isn't in the diff.
 - Don't invent success/error messages — only assert messages you can see in the source code
 
-Output format: Return ONLY valid TypeScript/Playwright test code. Each test file should be wrapped in a code block with \`// filename: <name>.spec.ts\` on the first line.`;
+## When There Is Nothing to Test
+Some code changes have no behavior a browser test can observe: analytics or telemetry configuration, server-side logging, type-only edits, comments, refactors that keep rendered output identical. If the whole diff is like that, do not invent a test that asserts unrelated page content. Reply with exactly one line and no code block:
+
+NO_TESTS: <one sentence naming what the change does and why a browser test cannot observe it>
+
+Output format: Otherwise, return ONLY valid TypeScript/Playwright test code. Each test file should be wrapped in a code block with \`// filename: <name>.spec.ts\` on the first line.`;
 
 export function buildGeneratePrompt(context: ChangeContext, baseUrl: string): string {
   const parts: string[] = [];
@@ -184,33 +190,77 @@ Your job:
 - Add proper imports from '@playwright/test'
 - Return ONLY the complete converted Playwright test file code, no explanations.`;
 
-/** Parse `// filename: x.spec.ts`-annotated code blocks into GeneratedTest objects. */
+/**
+ * Extract generated tests from a model response. Mirrors greenci-api's
+ * lib/parse-tests.ts so BYO-key runs behave like hosted ones.
+ *
+ * Permissive about the fence (```tsx, ```javascript, CRLF and a trailing space
+ * are all the model doing something reasonable), strict about the content: a
+ * block that does not look like a spec is skipped, and a response with no spec
+ * at all yields zero tests. The old fallback wrote the whole response out as
+ * generated.spec.ts, so a model that answered in prose produced a "test" full
+ * of English that failed with a SyntaxError and, with auto-commit on, could be
+ * committed.
+ */
+const CODE_BLOCK = /```[ \t]*[A-Za-z0-9+#._-]*[ \t]*\r?\n([\s\S]*?)```/g;
+const FILENAME_HINT = /^[ \t]*\/\/[ \t]*filename:[ \t]*(.+?)[ \t]*\r?\n/i;
+
+/** Code rather than prose. Deliberately shallow; see greenci-api looksLikeTest. */
+export function looksLikeTest(code: string): boolean {
+  const s = code.trim();
+  if (!s) return false;
+  if (/from\s+['"]@playwright\/test['"]/.test(s)) return true;
+  return /\b(test|it|describe)\s*(\.\w+)?\s*\(/.test(s);
+}
+
 export function parseTestsFromResponse(content: string): GeneratedTest[] {
   const tests: GeneratedTest[] = [];
-  const codeBlockRegex = /```(?:typescript|ts)?\n(\/\/ filename: (.+?)\n)?([\s\S]*?)```/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = codeBlockRegex.exec(content)) !== null) {
-    const filename = match[2]?.trim() || `test-${tests.length + 1}.spec.ts`;
-    const code = (match[1] && !match[2] ? match[1] : '') + (match[3] || '');
+  for (const match of content.matchAll(CODE_BLOCK)) {
+    let body = match[1] ?? '';
+    let hinted: string | undefined;
+    const hint = body.match(FILENAME_HINT);
+    if (hint) {
+      hinted = hint[1];
+      body = body.slice(hint[0].length);
+    }
+    const code = body.trim();
+    if (!looksLikeTest(code)) continue;
     tests.push({
-      filename,
-      code: code.trim(),
+      // Same fallback as greenci-api's sanitizeTestFilename: a hint without a
+      // spec suffix ("login flow") would be dropped later by resolveTestPath.
+      filename: hinted && ALLOWED_SUFFIX.test(hinted) ? hinted : `test-${tests.length + 1}.spec.ts`,
+      code,
       description: extractDescription(code),
       confidence: 0.8,
     });
   }
-
-  if (tests.length === 0 && content.trim()) {
-    tests.push({
-      filename: 'generated.spec.ts',
-      code: content.trim(),
-      description: 'Generated test',
-      confidence: 0.5,
-    });
-  }
-
   return tests;
+}
+
+/**
+ * The generate prompt lets the model decline a diff with nothing a browser can
+ * observe (telemetry or analytics config, logging, type-only edits) with a
+ * single `NO_TESTS: <reason>` line. Returns that reason, capped, or null.
+ */
+const NO_TESTS_LINE = /^[ \t]*NO_TESTS:[ \t]*(\S.*?)[ \t]*\r?$/m;
+const NO_TESTS_REASON_MAX = 300;
+
+export function parseNoTestsReason(content: string): string | null {
+  const match = content.match(NO_TESTS_LINE);
+  if (!match) return null;
+  return match[1].slice(0, NO_TESTS_REASON_MAX);
+}
+
+/**
+ * Tests plus the decline reason, for a generate response. Code wins over a
+ * NO_TESTS line when the model emits both.
+ */
+export function parseGenerateResponse(content: string): GenerateResult {
+  const tests = parseTestsFromResponse(content);
+  if (tests.length > 0) return { tests };
+  const skippedReason = parseNoTestsReason(content);
+  if (skippedReason) return { tests, skippedReason };
+  return { tests, generationError: 'the model returned no usable test code' };
 }
 
 function extractDescription(code: string): string {

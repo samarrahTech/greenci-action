@@ -41,9 +41,21 @@ export async function postReport(
   return data.html_url;
 }
 
+/** One-line code span: markdown, HTML and mentions inside it render as text. */
+function inertText(text: string): string {
+  const oneLine = text.replace(/[\r\n]+/g, ' ').replace(/`/g, "'").trim();
+  return '`' + oneLine + '`';
+}
+
 function buildReportBody(report: RunReport): string {
   const hasSuspectedBugs = (report.suspectedBugs?.length ?? 0) > 0;
-  const statusEmoji = hasSuspectedBugs ? '🚨' : report.testsFailed === 0 ? '✅' : '⚠️';
+  const statusEmoji = hasSuspectedBugs
+    ? '🚨'
+    : report.generationError || report.testsFailed > 0 || (report.testsGenerated === 0 && !report.skippedReason)
+      ? '⚠️'
+      : report.skippedReason && report.testsGenerated === 0
+        ? '⏭️'
+        : '✅';
   const duration = (report.duration / 1000).toFixed(1);
 
   let body = `${COMMENT_MARKER}\n`;
@@ -61,6 +73,16 @@ function buildReportBody(report: RunReport): string {
       }
     }
     body += `\nPlease review these before merging.\n\n`;
+  }
+
+  // Zero tests needs a reason, or a skipped diff, a failed generation and an
+  // empty run all read the same.
+  if (report.generationError) {
+    body += `**GreenCI could not generate tests for this diff** (${report.generationError}). Your PR did not cause this; re-run the job to retry.\n\n`;
+  } else if (report.skippedReason && report.testsGenerated === 0) {
+    // The reason is model output the diff can steer: show it as inert text,
+    // never as markdown (links, images, @mentions) under the bot's name.
+    body += `**Nothing to test in this diff.** Model's reason: ${inertText(report.skippedReason)}\n\n`;
   }
 
   // Summary table

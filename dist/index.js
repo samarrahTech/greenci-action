@@ -35098,8 +35098,11 @@ async function run() {
             const reportUrl = await (0, pr_reporter_1.postReport)(token, prContext, report);
             core.setOutput('report-url', reportUrl);
         }
-        // 7. Upload run results + traces to the dashboard
-        if (config.apiKey) {
+        // 7. Upload run results + traces to the dashboard. A run with zero tests
+        // (declined, failed, or every test rejected as unfalsifiable) ran nothing;
+        // recording it as 0/0 passing would read as a green run on the dashboard.
+        const ranNothing = report.testsGenerated === 0;
+        if (config.apiKey && !ranNothing) {
             await (0, results_uploader_1.uploadResults)(config.greenCIApiUrl, config.apiKey, prContext, report);
         }
         const projectId = core.getInput('project-id');
@@ -35254,7 +35257,7 @@ class GreenCIClient {
                 .map((f) => f.patch || '')
                 .filter(Boolean)
                 .join('\n');
-            const response = await fetch(`${config.greenCIApiUrl}/v1/generate`, {
+            const post = () => fetch(`${config.greenCIApiUrl}/v1/generate`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -35276,13 +35279,30 @@ class GreenCIClient {
                     },
                 }),
             });
-            if (!response.ok) {
+            // 502 NO_TESTS_GENERATED means the model answered without usable test
+            // code (a real decline is a 200 with `skipped`). That is usually a
+            // one-off, so retry once. If it repeats, report it on the PR instead of
+            // failing the caller's CI: the PR did nothing wrong.
+            let response = await post();
+            for (let attempt = 1; !response.ok; attempt++) {
                 const body = await readErrorBody(response);
+                const noTests = response.status === 502 && body.includes('NO_TESTS_GENERATED');
+                if (noTests && attempt === 1) {
+                    core.info('GreenCI API returned no usable test code; retrying once.');
+                    response = await post();
+                    continue;
+                }
+                if (noTests) {
+                    return { tests: [], generationError: 'the model returned no usable test code twice' };
+                }
                 throw new Error(`GreenCI test generation failed (HTTP ${response.status})${body ? `: ${body}` : ''}. ` +
                     `Check that your greenci-api-key is valid and your plan has remaining quota. No tests were generated.`);
             }
             const data = (await response.json());
-            return data.tests;
+            if (data.tests.length === 0 && data.skipped?.reason) {
+                return { tests: [], skippedReason: data.skipped.reason };
+            }
+            return { tests: data.tests };
         }
         catch (error) {
             if (error instanceof Error && error.message.startsWith('GreenCI test generation failed')) {
@@ -35810,9 +35830,20 @@ async function postReport(token, prContext, report) {
     });
     return data.html_url;
 }
+/** One-line code span: markdown, HTML and mentions inside it render as text. */
+function inertText(text) {
+    const oneLine = text.replace(/[\r\n]+/g, ' ').replace(/`/g, "'").trim();
+    return '`' + oneLine + '`';
+}
 function buildReportBody(report) {
     const hasSuspectedBugs = (report.suspectedBugs?.length ?? 0) > 0;
-    const statusEmoji = hasSuspectedBugs ? '🚨' : report.testsFailed === 0 ? '✅' : '⚠️';
+    const statusEmoji = hasSuspectedBugs
+        ? '🚨'
+        : report.generationError || report.testsFailed > 0 || (report.testsGenerated === 0 && !report.skippedReason)
+            ? '⚠️'
+            : report.skippedReason && report.testsGenerated === 0
+                ? '⏭️'
+                : '✅';
     const duration = (report.duration / 1000).toFixed(1);
     let body = `${COMMENT_MARKER}\n`;
     body += `## ${statusEmoji} GreenCI E2E Test Report\n\n`;
@@ -35828,6 +35859,16 @@ function buildReportBody(report) {
             }
         }
         body += `\nPlease review these before merging.\n\n`;
+    }
+    // Zero tests needs a reason, or a skipped diff, a failed generation and an
+    // empty run all read the same.
+    if (report.generationError) {
+        body += `**GreenCI could not generate tests for this diff** (${report.generationError}). Your PR did not cause this; re-run the job to retry.\n\n`;
+    }
+    else if (report.skippedReason && report.testsGenerated === 0) {
+        // The reason is model output the diff can steer: show it as inert text,
+        // never as markdown (links, images, @mentions) under the bot's name.
+        body += `**Nothing to test in this diff.** Model's reason: ${inertText(report.skippedReason)}\n\n`;
     }
     // Summary table
     body += `| Metric | Value |\n`;
@@ -35890,7 +35931,7 @@ function buildReportBody(report) {
 /***/ }),
 
 /***/ 6224:
-/***/ ((__unused_webpack_module, exports) => {
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
@@ -35899,9 +35940,13 @@ exports.MIGRATION_SYSTEM = exports.SELF_HEALING_SYSTEM = exports.BOOTSTRAP_SYSTE
 exports.buildGeneratePrompt = buildGeneratePrompt;
 exports.buildBootstrapPrompt = buildBootstrapPrompt;
 exports.buildHealPrompt = buildHealPrompt;
+exports.looksLikeTest = looksLikeTest;
 exports.parseTestsFromResponse = parseTestsFromResponse;
+exports.parseNoTestsReason = parseNoTestsReason;
+exports.parseGenerateResponse = parseGenerateResponse;
 exports.parseHealVerdict = parseHealVerdict;
 exports.extractCode = extractCode;
+const safe_paths_1 = __nccwpck_require__(3);
 /**
  * Prompts and response parsing for BYO-LLM providers (anthropic, openai).
  * Kept in sync with greenci-api/src/services/llm/prompts.ts so hosted and
@@ -35936,7 +35981,12 @@ exports.TEST_GENERATION_SYSTEM = `You are an expert QA engineer specializing in 
 - Only assert things visible in the HTML. Don't assume server responses or dynamic content that isn't in the diff.
 - Don't invent success/error messages — only assert messages you can see in the source code
 
-Output format: Return ONLY valid TypeScript/Playwright test code. Each test file should be wrapped in a code block with \`// filename: <name>.spec.ts\` on the first line.`;
+## When There Is Nothing to Test
+Some code changes have no behavior a browser test can observe: analytics or telemetry configuration, server-side logging, type-only edits, comments, refactors that keep rendered output identical. If the whole diff is like that, do not invent a test that asserts unrelated page content. Reply with exactly one line and no code block:
+
+NO_TESTS: <one sentence naming what the change does and why a browser test cannot observe it>
+
+Output format: Otherwise, return ONLY valid TypeScript/Playwright test code. Each test file should be wrapped in a code block with \`// filename: <name>.spec.ts\` on the first line.`;
 function buildGeneratePrompt(context, baseUrl) {
     const parts = [];
     const diff = context.modifiedFiles
@@ -36053,30 +36103,78 @@ Your job:
 - Ensure proper Playwright test structure (test.describe, test, fixtures)
 - Add proper imports from '@playwright/test'
 - Return ONLY the complete converted Playwright test file code, no explanations.`;
-/** Parse `// filename: x.spec.ts`-annotated code blocks into GeneratedTest objects. */
+/**
+ * Extract generated tests from a model response. Mirrors greenci-api's
+ * lib/parse-tests.ts so BYO-key runs behave like hosted ones.
+ *
+ * Permissive about the fence (```tsx, ```javascript, CRLF and a trailing space
+ * are all the model doing something reasonable), strict about the content: a
+ * block that does not look like a spec is skipped, and a response with no spec
+ * at all yields zero tests. The old fallback wrote the whole response out as
+ * generated.spec.ts, so a model that answered in prose produced a "test" full
+ * of English that failed with a SyntaxError and, with auto-commit on, could be
+ * committed.
+ */
+const CODE_BLOCK = /```[ \t]*[A-Za-z0-9+#._-]*[ \t]*\r?\n([\s\S]*?)```/g;
+const FILENAME_HINT = /^[ \t]*\/\/[ \t]*filename:[ \t]*(.+?)[ \t]*\r?\n/i;
+/** Code rather than prose. Deliberately shallow; see greenci-api looksLikeTest. */
+function looksLikeTest(code) {
+    const s = code.trim();
+    if (!s)
+        return false;
+    if (/from\s+['"]@playwright\/test['"]/.test(s))
+        return true;
+    return /\b(test|it|describe)\s*(\.\w+)?\s*\(/.test(s);
+}
 function parseTestsFromResponse(content) {
     const tests = [];
-    const codeBlockRegex = /```(?:typescript|ts)?\n(\/\/ filename: (.+?)\n)?([\s\S]*?)```/g;
-    let match;
-    while ((match = codeBlockRegex.exec(content)) !== null) {
-        const filename = match[2]?.trim() || `test-${tests.length + 1}.spec.ts`;
-        const code = (match[1] && !match[2] ? match[1] : '') + (match[3] || '');
+    for (const match of content.matchAll(CODE_BLOCK)) {
+        let body = match[1] ?? '';
+        let hinted;
+        const hint = body.match(FILENAME_HINT);
+        if (hint) {
+            hinted = hint[1];
+            body = body.slice(hint[0].length);
+        }
+        const code = body.trim();
+        if (!looksLikeTest(code))
+            continue;
         tests.push({
-            filename,
-            code: code.trim(),
+            // Same fallback as greenci-api's sanitizeTestFilename: a hint without a
+            // spec suffix ("login flow") would be dropped later by resolveTestPath.
+            filename: hinted && safe_paths_1.ALLOWED_SUFFIX.test(hinted) ? hinted : `test-${tests.length + 1}.spec.ts`,
+            code,
             description: extractDescription(code),
             confidence: 0.8,
         });
     }
-    if (tests.length === 0 && content.trim()) {
-        tests.push({
-            filename: 'generated.spec.ts',
-            code: content.trim(),
-            description: 'Generated test',
-            confidence: 0.5,
-        });
-    }
     return tests;
+}
+/**
+ * The generate prompt lets the model decline a diff with nothing a browser can
+ * observe (telemetry or analytics config, logging, type-only edits) with a
+ * single `NO_TESTS: <reason>` line. Returns that reason, capped, or null.
+ */
+const NO_TESTS_LINE = /^[ \t]*NO_TESTS:[ \t]*(\S.*?)[ \t]*\r?$/m;
+const NO_TESTS_REASON_MAX = 300;
+function parseNoTestsReason(content) {
+    const match = content.match(NO_TESTS_LINE);
+    if (!match)
+        return null;
+    return match[1].slice(0, NO_TESTS_REASON_MAX);
+}
+/**
+ * Tests plus the decline reason, for a generate response. Code wins over a
+ * NO_TESTS line when the model emits both.
+ */
+function parseGenerateResponse(content) {
+    const tests = parseTestsFromResponse(content);
+    if (tests.length > 0)
+        return { tests };
+    const skippedReason = parseNoTestsReason(content);
+    if (skippedReason)
+        return { tests, skippedReason };
+    return { tests, generationError: 'the model returned no usable test code' };
 }
 function extractDescription(code) {
     const describeMatch = code.match(/describe\(['"`](.+?)['"`]/);
@@ -36202,7 +36300,7 @@ class AnthropicClient {
         const model = config.llmModel || DEFAULT_MODEL;
         core.info(`Generating tests via Anthropic API (${model}) — code stays between your runner and Anthropic`);
         const content = await this.complete(prompts_1.TEST_GENERATION_SYSTEM, (0, prompts_1.buildGeneratePrompt)(context, config.baseUrl), model);
-        return (0, prompts_1.parseTestsFromResponse)(content);
+        return (0, prompts_1.parseGenerateResponse)(content);
     }
     async bootstrapTests(journeys, pages, config, existingTests) {
         const model = config.llmModel || DEFAULT_MODEL;
@@ -36334,7 +36432,7 @@ class OpenAIClient {
         const model = config.llmModel || DEFAULT_MODEL;
         core.info(`Generating tests via OpenAI API (${model}) — code stays between your runner and OpenAI`);
         const content = await this.complete(prompts_1.TEST_GENERATION_SYSTEM, (0, prompts_1.buildGeneratePrompt)(context, config.baseUrl), model);
-        return (0, prompts_1.parseTestsFromResponse)(content);
+        return (0, prompts_1.parseGenerateResponse)(content);
     }
     async bootstrapTests(journeys, pages, config, existingTests) {
         const model = config.llmModel || DEFAULT_MODEL;
@@ -36911,7 +37009,12 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     }
     // 1. Generate tests
     core.info('🧪 Generating tests...');
-    const proposed = await llmClient.generateTests(context, config);
+    const { tests: proposed, skippedReason, generationError, } = await llmClient.generateTests(context, config);
+    if (skippedReason)
+        core.notice(`GreenCI: nothing to test in this diff. ${skippedReason}`);
+    if (generationError) {
+        core.warning(`GreenCI could not generate tests for this diff (${generationError}). Skipping; re-run the job to retry.`);
+    }
     // Drop tests with no falsifiable assertion before they reach disk (see
     // assertion-lint.ts): an always-green spec is a trust problem, not coverage.
     const { kept: generatedTests, rejected: rejectedTests } = (0, assertion_lint_1.rejectTautologies)(proposed);
@@ -36930,6 +37033,8 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
             tests: [],
             committedFiles: [],
             rejectedTests,
+            skippedReason,
+            generationError,
         };
     }
     // 2. Write tests to disk. writeTests drops any test whose filename failed
