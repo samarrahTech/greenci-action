@@ -56,7 +56,9 @@ export async function ensurePlaywright(workDir: string): Promise<boolean> {
  */
 const CHROMIUM_PROBE =
   "require('@playwright/test').chromium.launch({ timeout: 15000 })" +
-  '.then((b) => b.close()).then(() => process.exit(0), () => process.exit(1))';
+  '.then((b) => b.close())' +
+  // Print the launch error: without it the log can only say "no output".
+  '.then(() => process.exit(0), (e) => { console.error(String(e).split("\\n")[0]); process.exit(1); })';
 
 export async function chromiumLaunches(workDir: string): Promise<boolean> {
   let stderr = '';
