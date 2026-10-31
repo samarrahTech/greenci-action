@@ -36029,6 +36029,13 @@ exports.BOOTSTRAP_SYSTEM = `You are an expert QA engineer creating a FOUNDATIONA
 - 2-6 focused tests per journey: the happy path first, then the highest-value guard rails (validation, empty states).
 - Tests must be independent and idempotent. No fixed waits; rely on auto-waiting and web-first assertions.
 
+## Depth: prove the journey works, not that the form exists
+The happy path of each journey is the test that matters most. Write it so it fails when the journey is broken:
+- Do the journey's core action (create, save, submit, update), not just open the page and check that fields exist. Give anything the test creates a unique name (for example \`'Note ' + Date.now()\`) so reruns do not collide. The Safety rules below still win: stop before payments, real emails or deletions.
+- Assert the result the user would see (the new item in the list, the saved value, the confirmation), then call \`await page.reload()\` and assert it is still there. A result that disappears on reload means it was never saved.
+- For a journey behind login, after the first navigation also reload and assert the user is still signed in (an account menu, their name, a page only signed-in users reach). This catches session and auth races that a single page load hides.
+- Spend the 2-6 tests on these deep checks first. Tests that only assert a field, label or placeholder is present are the lowest value; write them only when nothing deeper is possible from the provided HTML.
+
 ## Authentication
 - If a journey requires a logged-in user, add test.use({ storageState: 'playwright/.auth/user.json' }) at the top of that spec file. Do NOT write TODO comments about creating the auth setup and do NOT include example setup code — the pipeline provides a ready-made auth.setup.ts and config wiring automatically.
 - Never hardcode credentials.
