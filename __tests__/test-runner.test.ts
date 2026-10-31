@@ -1,5 +1,5 @@
 import * as exec from '@actions/exec';
-import { writeTests, runTests, cleanupTests, ensureAuthSession, detectDevServer, playwrightConfigSource } from '../src/test-runner';
+import { writeTests, runTests, cleanupTests, ensureAuthSession, detectDevServer, playwrightConfigSource, ensurePlaywright } from '../src/test-runner';
 import { ActionConfig, GeneratedTest } from '../src/types';
 
 jest.mock('@actions/core');
@@ -430,5 +430,67 @@ describe('playwrightConfigSource', () => {
         expect(src.includes('No start script was found')).toBe(devServer === null);
       }
     }
+  });
+});
+
+describe('ensurePlaywright', () => {
+  const mockExec = exec.exec as jest.Mock;
+  beforeEach(() => {
+    mockExec.mockReset();
+    mockExistsSync.mockReset();
+  });
+
+  const installCalls = () =>
+    mockExec.mock.calls.filter(([cmd, args]) => cmd === 'npx' && (args as string[]).includes('install'));
+
+  it('skips the system dependency install when Chromium already launches', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockExec.mockResolvedValue(0);
+    const installed = await ensurePlaywright('/work');
+    expect(installed).toBe(false);
+    expect(mockExec).toHaveBeenCalledWith('node', ['-e', expect.stringContaining('chromium.launch')], expect.objectContaining({ cwd: '/work', ignoreReturnCode: true }));
+    expect(installCalls()).toHaveLength(1);
+    expect(installCalls()[0][1]).toEqual(['playwright', 'install', 'chromium']);
+  });
+
+  it('installs with system deps when the launch probe fails', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockExec.mockImplementation(async (cmd: string) => (cmd === 'node' ? 1 : 0));
+    await ensurePlaywright('/work');
+    expect(installCalls()).toHaveLength(1);
+    expect(installCalls()[0][1]).toEqual(['playwright', 'install', '--with-deps', 'chromium']);
+  });
+
+  it('logs why the launch check failed', async () => {
+    const core = jest.requireMock('@actions/core');
+    mockExistsSync.mockReturnValue(true);
+    mockExec.mockImplementation(async (cmd: string, _args: string[], opts: any) => {
+      if (cmd === 'node') {
+        opts.listeners.stderr(Buffer.from('\nbrowserType.launch: Executable doesn\'t exist at /x\nmore'));
+        return 1;
+      }
+      return 0;
+    });
+    await ensurePlaywright('/work');
+    expect(core.info).toHaveBeenCalledWith(expect.stringContaining("Executable doesn't exist at /x"));
+  });
+
+  it('installs when the probe itself throws', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockExec.mockImplementation(async (cmd: string) => {
+      if (cmd === 'node') throw new Error('node missing');
+      return 0;
+    });
+    await ensurePlaywright('/work');
+    expect(installCalls()).toHaveLength(1);
+  });
+
+  it('installs @playwright/test first when the package is missing, then probes', async () => {
+    mockExistsSync.mockReturnValue(false);
+    mockExec.mockResolvedValue(0);
+    const installed = await ensurePlaywright('/work');
+    expect(installed).toBe(true);
+    expect(mockExec.mock.calls[0][0]).toBe('npm');
+    expect(mockExec.mock.calls[1][0]).toBe('node');
   });
 });

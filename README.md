@@ -201,6 +201,20 @@ With a BYO-LLM provider, the action calls your LLM provider directly from the ru
   run: echo "Some tests failed!"
 ```
 
+### Faster runs: cache the Playwright browser
+
+GreenCI checks whether Chromium already launches before it runs `playwright install --with-deps chromium`, which can take several minutes. Caching the browser download lets most runs skip that step:
+
+```yaml
+- uses: actions/cache@v4
+  with:
+    path: ~/.cache/ms-playwright
+    key: playwright-${{ runner.os }}-${{ github.run_id }}
+    restore-keys: playwright-${{ runner.os }}-
+```
+
+Place it before the GreenCI step. The key changes every run so the cache always saves the browser that run used, and `restore-keys` restores the newest one; a key tied to your lockfile would go stale when GreenCI installs a newer Playwright for you. If the cached browser cannot launch (for example, a system library is missing), GreenCI installs it as before and logs why.
+
 ## Cypress → Playwright Migration
 
 GreenCI can automatically migrate your Cypress E2E tests to Playwright:
