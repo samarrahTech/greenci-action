@@ -37173,6 +37173,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ensurePlaywright = ensurePlaywright;
+exports.chromiumLaunches = chromiumLaunches;
 exports.detectDevServer = detectDevServer;
 exports.playwrightConfigSource = playwrightConfigSource;
 exports.ensurePlaywrightConfig = ensurePlaywrightConfig;
@@ -37204,9 +37205,17 @@ async function ensurePlaywright(workDir) {
         });
         installed = true;
     }
-    // This step is pure runner time (apt + browser download) and has ranged
-    // from ~1 to ~10 minutes on GitHub-hosted runners — log it so a slow run
-    // is attributable at a glance.
+    // `--with-deps` runs apt every time, even when the browser is already
+    // cached, and has ranged from ~1 to ~10 minutes on GitHub-hosted runners.
+    // If Chromium already launches, the system libraries are there: skip apt,
+    // but still run the plain install, which returns in seconds when the
+    // browser is cached and fetches anything else Playwright needs (ffmpeg).
+    if (await chromiumLaunches(workDir)) {
+        core.info('🌐 Chromium already launches — skipping system dependency install');
+        await exec.exec('npx', ['playwright', 'install', 'chromium'], { cwd: workDir, silent: true });
+        return installed;
+    }
+    // Pure runner time: log it so a slow run is attributable at a glance.
     const started = Date.now();
     core.info('🌐 Ensuring Chromium is installed for Playwright...');
     await exec.exec('npx', ['playwright', 'install', '--with-deps', 'chromium'], {
@@ -37215,6 +37224,33 @@ async function ensurePlaywright(workDir) {
     });
     core.info(`🌐 Chromium ready (${Math.round((Date.now() - started) / 1000)}s)`);
     return installed;
+}
+/**
+ * Can @playwright/test launch Chromium right now? A ~1s probe that decides
+ * whether the multi-minute install step is needed. Any failure (missing
+ * browser, missing system library, timeout) means "install".
+ */
+const CHROMIUM_PROBE = "require('@playwright/test').chromium.launch({ timeout: 15000 })" +
+    '.then((b) => b.close()).then(() => process.exit(0), () => process.exit(1))';
+async function chromiumLaunches(workDir) {
+    let stderr = '';
+    try {
+        const code = await exec.exec('node', ['-e', CHROMIUM_PROBE], {
+            cwd: workDir,
+            silent: true,
+            ignoreReturnCode: true,
+            listeners: { stderr: (data) => (stderr += data.toString()) },
+        });
+        if (code === 0)
+            return true;
+    }
+    catch (err) {
+        stderr = err instanceof Error ? err.message : String(err);
+    }
+    // Say why, or a cache that never takes effect looks like GreenCI ignoring it.
+    const reason = stderr.split('\n').find((l) => l.trim()) ?? 'no output';
+    core.info(`🌐 Chromium launch check failed (${reason.trim().slice(0, 200)}) — installing`);
+    return false;
 }
 /**
  * Best-effort guess at the command that starts the app, from package.json
