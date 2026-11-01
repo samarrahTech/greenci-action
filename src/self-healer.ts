@@ -60,6 +60,7 @@ export async function healFailedTests(
           {
             test: currentTest,
             error: healError,
+            pageSnapshot: currentResult.pageSnapshot,
             attempt,
             context,
           },
@@ -108,7 +109,9 @@ export async function healFailedTests(
         }
 
         currentTest = healedTest;
-        currentResult = healedResult;
+        // A rerun that broke before the page loaded leaves no snapshot; the
+        // last page seen is still the best evidence for the next attempt.
+        currentResult = { ...healedResult, pageSnapshot: healedResult.pageSnapshot ?? currentResult.pageSnapshot };
         healError = healedResult.error || 'Unknown error';
       } catch (error) {
         core.warning(`Self-healing attempt ${attempt} failed: ${error}`);

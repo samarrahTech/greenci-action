@@ -113,11 +113,16 @@ export function assertSafeToWrite(root: string, absolute: string): void {
   }
 
   // The parent chain must not escape via a link either.
-  const realRoot = realPathOrSelf(root);
-  const realParent = realPathOrSelf(path.dirname(absolute));
-  if (realParent !== realRoot && !realParent.startsWith(realRoot + path.sep)) {
+  if (!isInsideRoot(root, path.dirname(absolute))) {
     throw new UnsafeTestPathError(absolute, 'resolves outside the test directory via a symlinked parent');
   }
+}
+
+/** True when p, with every symlink resolved, is root or lies under it. */
+export function isInsideRoot(root: string, p: string): boolean {
+  const realRoot = realPathOrSelf(root);
+  const real = realPathOrSelf(p);
+  return real === realRoot || real.startsWith(realRoot + path.sep);
 }
 
 /** realpath, falling back to the lexical path when it doesn't exist yet. */

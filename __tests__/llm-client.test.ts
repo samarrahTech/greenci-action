@@ -179,6 +179,28 @@ describe('GreenCIClient', () => {
      * It survived because the existing tests here mock fetch and assert only on
      * the RESPONSE. Nothing looked at what was actually sent.
      */
+    it('sends the page snapshot as its own field, not inside the error (GC-092)', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ test: { filename: 'e2e/a.spec.ts', code: 'x', description: '', confidence: 1 } }),
+      });
+
+      await client.healTest(
+        {
+          test: { filename: 'e2e/a.spec.ts', code: 'broken', description: '', confidence: 0.5 },
+          error: 'timeout',
+          pageSnapshot: '- textbox "Vendor"',
+          attempt: 1,
+          context: mockContext,
+        },
+        mockConfig,
+      );
+
+      const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+      expect(body.error).toBe('timeout');
+      expect(body.pageSnapshot).toBe('- textbox "Vendor"');
+    });
+
     it('sends context arrays as strings, matching the API schema', async () => {
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
