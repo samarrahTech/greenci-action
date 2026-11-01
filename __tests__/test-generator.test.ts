@@ -9,6 +9,7 @@ jest.mock('../src/test-runner', () => ({
   runTests: jest.fn().mockResolvedValue([{ filename: 'e2e/test.spec.ts', passed: true, duration: 100 }]),
   ensurePlaywright: jest.fn().mockResolvedValue(false),
   ensurePlaywrightConfig: jest.fn().mockReturnValue(null),
+  ensureAuthSession: jest.fn().mockResolvedValue({ status: 'ok' }),
 }));
 
 jest.mock('../src/self-healer', () => ({
@@ -81,6 +82,20 @@ describe('generateAndRunTests', () => {
     expect(report.testsGenerated).toBe(1);
     expect(report.testsPassed).toBe(1);
     expect(report.testsFailed).toBe(0);
+  });
+
+  // GC-089: PR runs renew the session like bootstrap does, heal reruns included.
+  it('gives the run and the heal reruns one session renewal record after signing in', async () => {
+    const { runTests, ensureAuthSession } = jest.requireMock('../src/test-runner');
+    const { healFailedTests } = jest.requireMock('../src/self-healer');
+    const authed = { ...mockTest, code: "test.use({ storageState: 'playwright/.auth/user.json' });" };
+    runTests.mockResolvedValueOnce([{ filename: authed.filename, passed: false, duration: 1, error: 'boom' }]);
+    const client: ILLMClient = { ...mockLLMClient, generateTests: jest.fn().mockResolvedValue({ tests: [authed] }) };
+    await generateAndRunTests(mockContext, mockConfig, client, '/tmp');
+    expect(ensureAuthSession).toHaveBeenCalledWith('/tmp', mockConfig);
+    const session = runTests.mock.calls[runTests.mock.calls.length - 1][3];
+    expect(session).toEqual({ rotates: false, stopped: false });
+    expect(healFailedTests.mock.calls[healFailedTests.mock.calls.length - 1][6]).toBe(session);
   });
 
   it('drops tautological tests before writing and reports them', async () => {

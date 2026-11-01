@@ -246,7 +246,7 @@ export interface AuthSessionResult {
 }
 
 /**
- * Sign in once before the suite runs. Specs are executed one file at a time
+ * Sign in before the suite runs. Specs are executed one file at a time
  * (see runTests), so Playwright project dependencies only produce the session
  * file when the customer's own config routes THAT spec through a project that
  * depends on the setup. A repo that already had a config (TME-web: authed specs
@@ -265,7 +265,7 @@ export async function ensureAuthSession(
     return { status: 'skipped' };
   }
 
-  core.info(`🔐 Signing in once via ${AUTH_SETUP_FILENAME} so authenticated specs have a session...`);
+  core.info(`🔐 Signing in via ${AUTH_SETUP_FILENAME} so authenticated specs have a session...`);
   const { exitCode, stdout, stderr } = await runPlaywrightFile(AUTH_SETUP_FILENAME, workDir, config, env);
   const output = [stdout, stderr].filter(Boolean).join('\n');
 
@@ -293,6 +293,71 @@ export async function ensureAuthSession(
   }
   core.info('✅ Signed in — session saved for the authenticated specs');
   return { status: 'ok' };
+}
+
+/**
+ * Apps that rotate refresh tokens treat a rotated token presented again as
+ * stolen and revoke the whole session. Every spec loads the same saved
+ * session, so after one spec has rotated the token the next one replays a
+ * dead token and is logged out, heal reruns included. Most apps do not rotate,
+ * and signing in before every spec would cost them logins (and login rate
+ * limits) for nothing, so runTests finds out by experiment: an authenticated
+ * spec that fails looking signed out is re-run once with a fresh sign-in, and
+ * if that passes the app rotates and every later authenticated spec signs in
+ * first. A renewal
+ * that fails puts the earlier session back and stops renewing for the run, so
+ * a login endpoint that is rate-limiting the run is not hit again.
+ */
+export interface SessionRenewal {
+  /** A fresh sign-in turned a failure into a pass: sign in before every authenticated spec. */
+  rotates: boolean;
+  /** A renewal failed; reuse the earlier session from here on. */
+  stopped: boolean;
+}
+
+/** The spec loads a saved session file (an inline storageState object, such as an empty one for a logged-out spec, does not count). */
+function loadsSavedSession(code: string): boolean {
+  return /storageState\s*:\s*['"`]/.test(code);
+}
+
+/** The failure looks like the session was gone: sent to the sign-in page, or a 401. */
+export function looksSignedOut(error: string | undefined): boolean {
+  return !!error && (/\/(log-?in|sign-?in)\b/i.test(error) || /\b401\b/.test(error));
+}
+
+async function renewSession(workDir: string, config: ActionConfig, session: SessionRenewal): Promise<boolean> {
+  const sessionFile = path.join(workDir, STORAGE_STATE_PATH);
+  const previous = `${sessionFile}.prev`;
+  let movedAside = false;
+  let output = '';
+  try {
+    // Move the session aside so the setup's own session reuse cannot apply.
+    if (fs.existsSync(sessionFile)) {
+      fs.renameSync(sessionFile, previous);
+      movedAside = true;
+    }
+    const run = await runPlaywrightFile(AUTH_SETUP_FILENAME, workDir, config);
+    output = [run.stdout, run.stderr].filter(Boolean).join('\n');
+    if (run.exitCode === 0 && fs.existsSync(sessionFile)) {
+      try {
+        fs.rmSync(previous, { force: true });
+      } catch {
+        // The new session is in place; a leftover .prev file is harmless.
+      }
+      return true;
+    }
+  } catch (err) {
+    output = err instanceof Error ? err.message : String(err);
+  }
+  session.stopped = true;
+  core.warning(`⚠️ Signing in again via ${AUTH_SETUP_FILENAME} failed — the rest of this run reuses the earlier session`);
+  core.info(`   Setup output:\n${output.substring(0, 800)}`);
+  try {
+    if (movedAside) fs.renameSync(previous, sessionFile);
+  } catch (err) {
+    core.warning(`Could not restore the earlier session: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return false;
 }
 
 /**
@@ -383,10 +448,46 @@ export async function writeTests(
   return writtenFiles;
 }
 
+async function runSpec(test: GeneratedTest, filePath: string, config: ActionConfig, workDir: string): Promise<TestResult> {
+  const startTime = Date.now();
+
+  try {
+    // Pass just the filename as a regex filter — Playwright matches against absolute paths
+    const basename = path.basename(filePath);
+    const { exitCode, stdout, stderr } = await runPlaywrightFile(basename, workDir, config);
+
+    const duration = Date.now() - startTime;
+    const passed = exitCode === 0;
+
+    if (passed) {
+      core.info(`✅ ${test.filename} passed (${duration}ms)`);
+    } else {
+      core.warning(`❌ ${test.filename} failed (${duration}ms)`);
+      // Log stderr first (usually has the real error), then stdout
+      const errorOutput = [stderr, stdout].filter(Boolean).join('\n');
+      const errorSnippet = errorOutput.substring(0, 800);
+      if (errorSnippet) {
+        core.info(`   Error output:\n${errorSnippet}`);
+      }
+    }
+    return { filename: test.filename, passed, duration, error: passed ? undefined : stderr || stdout, stdout };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    core.warning(`❌ ${test.filename} errored: ${error}`);
+    return {
+      filename: test.filename,
+      passed: false,
+      duration,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function runTests(
   tests: GeneratedTest[],
   config: ActionConfig,
-  workDir: string
+  workDir: string,
+  session?: SessionRenewal,
 ): Promise<TestResult[]> {
   const results: TestResult[] = [];
 
@@ -406,45 +507,20 @@ export async function runTests(
       });
       continue;
     }
-    const startTime = Date.now();
-
-    try {
-      // Pass just the filename as a regex filter — Playwright matches against absolute paths
-      const basename = path.basename(filePath);
-      const { exitCode, stdout, stderr } = await runPlaywrightFile(basename, workDir, config);
-
-      const duration = Date.now() - startTime;
-      const passed = exitCode === 0;
-
-      results.push({
-        filename: test.filename,
-        passed,
-        duration,
-        error: passed ? undefined : stderr || stdout,
-        stdout,
-      });
-
-      if (passed) {
-        core.info(`✅ ${test.filename} passed (${duration}ms)`);
-      } else {
-        core.warning(`❌ ${test.filename} failed (${duration}ms)`);
-        // Log stderr first (usually has the real error), then stdout
-        const errorOutput = [stderr, stdout].filter(Boolean).join('\n');
-        const errorSnippet = errorOutput.substring(0, 800);
-        if (errorSnippet) {
-          core.info(`   Error output:\n${errorSnippet}`);
+    const authed = session !== undefined && !session.stopped && loadsSavedSession(test.code);
+    if (authed && session.rotates) await renewSession(workDir, config, session);
+    let result = await runSpec(test, filePath, config, workDir);
+    if (authed && !result.passed && looksSignedOut(result.error) && !session.rotates && !session.stopped) {
+      core.info(`🔐 ${test.filename}: signing in again and re-running it once, in case the shared session was revoked`);
+      if (await renewSession(workDir, config, session)) {
+        result = await runSpec(test, filePath, config, workDir);
+        if (result.passed) {
+          session.rotates = true;
+          core.info('🔐 It passed with a fresh session, so this app rotates sessions: each authenticated spec now signs in first');
         }
       }
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      results.push({
-        filename: test.filename,
-        passed: false,
-        duration,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      core.warning(`❌ ${test.filename} errored: ${error}`);
     }
+    results.push(result);
   }
 
   return results;

@@ -1,7 +1,7 @@
 import * as core from '@actions/core';
 import { resolveTestPath } from './safe-paths';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, TestResult, RunReport } from './types';
-import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, writeTests } from './test-runner';
+import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, writeTests, type SessionRenewal } from './test-runner';
 import { healFailedTests } from './self-healer';
 import { readExistingTests, formatExistingTestsForAPI } from './existing-tests';
 import { rejectTautologies } from './assertion-lint';
@@ -110,11 +110,13 @@ export async function generateAndRunTests(
   ensurePlaywrightConfig(workDir, config.baseUrl, config.testDir);
   // Specs run one file at a time: give authenticated ones a session up front
   // (same reason as bootstrap — see ensureAuthSession).
+  let session: SessionRenewal | undefined;
   if (writtenTests.some((t) => t.code.includes('storageState'))) {
-    await ensureAuthSession(workDir, config);
+    const auth = await ensureAuthSession(workDir, config);
+    if (auth.status === 'ok') session = { rotates: false, stopped: false };
   }
   core.info('🏃 Running tests...');
-  const initialResults = await runTests(writtenTests, config, workDir);
+  const initialResults = await runTests(writtenTests, config, workDir, session);
 
   // 4. Self-heal failed tests
   const failedTests = initialResults
@@ -130,7 +132,7 @@ export async function generateAndRunTests(
 
   if (failedTests.length > 0 && config.maxRetries > 0) {
     core.info(`🔧 Attempting to heal ${failedTests.length} failed test(s)...`);
-    const healing = await healFailedTests(failedTests, context, config, llmClient, workDir);
+    const healing = await healFailedTests(failedTests, context, config, llmClient, workDir, undefined, session);
     healedTests = healing.healed;
     healedResults = healing.results;
     suspectedBugs = healing.suspectedBugs;

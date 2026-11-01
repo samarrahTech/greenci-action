@@ -4,7 +4,7 @@ import { ActionConfig, GeneratedTest, ILLMClient, SuspectedBug, TestResult } fro
 import { parseJourneys, fetchPages } from './bootstrap-context';
 import { needsAuthScaffold, writeAuthScaffold, loginPathFromJourneys, AUTH_SETUP_FILENAME, type AuthFailureKind } from './auth-scaffold';
 import { readExistingTests, formatExistingTestsForAPI, type RenamedTest } from './existing-tests';
-import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, writeTests, detectDevServer, playwrightConfigSource, type AuthSessionResult, type AuthSessionStatus, type ProtectExisting } from './test-runner';
+import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, type SessionRenewal, writeTests, detectDevServer, playwrightConfigSource, type AuthSessionResult, type AuthSessionStatus, type ProtectExisting } from './test-runner';
 import { healFailedTests } from './self-healer';
 import { createBootstrapPR } from './git-ops';
 import { resolveTestPath } from './safe-paths';
@@ -111,8 +111,11 @@ export async function runBootstrap(
   // relying on the customer's config to route each new spec through setup.
   const authSession: AuthSessionResult | null = withAuth ? await ensureAuthSession(workDir, config) : null;
 
+  // Only a session that signed in is worth renewing (see SessionRenewal).
+  const session: SessionRenewal | undefined = authSession?.status === 'ok' ? { rotates: false, stopped: false } : undefined;
+
   core.info('🏃 Running the bootstrap suite...');
-  const initialResults = await runTests(generatedTests, config, workDir);
+  const initialResults = await runTests(generatedTests, config, workDir, session);
 
   const failedTests = initialResults
     .map((result, i) => ({ test: generatedTests[i], result }))
@@ -126,7 +129,7 @@ export async function runBootstrap(
   // deterministic and free — it decides what the PR tells the customer.
   if (failedTests.length > 0) {
     if (config.maxRetries > 0) core.info(`🔧 Healing ${failedTests.length} failing bootstrap test(s)...`);
-    const healing = await healFailedTests(failedTests, emptyChangeContext(), config, llmClient, workDir, protect);
+    const healing = await healFailedTests(failedTests, emptyChangeContext(), config, llmClient, workDir, protect, session);
     healed = healing.healed;
     healedResults = healing.results;
     suspectedBugs = healing.suspectedBugs;
@@ -266,7 +269,7 @@ export function buildBootstrapPRBody(
     body += '- Your login endpoint is **rate-limiting** the run (CI signs in repeatedly from one IP)\n';
     body += '- Sign-in is genuinely broken — worth checking by hand\n\n';
     if (setup.authSetupOutput) {
-      body += 'The sign-in step (“Signing in once via auth.setup.ts” in the workflow log) failed with:\n\n```\n' + setup.authSetupOutput.trim().substring(0, 1200) + '\n```\n\n';
+      body += 'The sign-in step (“Signing in via auth.setup.ts” in the workflow log) failed with:\n\n```\n' + setup.authSetupOutput.trim().substring(0, 1200) + '\n```\n\n';
     } else {
       body += 'The exact error is in the workflow log under the `[setup]` project. ';
     }

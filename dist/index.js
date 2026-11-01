@@ -33848,8 +33848,10 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     // Specs run one file at a time, so produce the session up front instead of
     // relying on the customer's config to route each new spec through setup.
     const authSession = withAuth ? await (0, test_runner_1.ensureAuthSession)(workDir, config) : null;
+    // Only a session that signed in is worth renewing (see SessionRenewal).
+    const session = authSession?.status === 'ok' ? { rotates: false, stopped: false } : undefined;
     core.info('🏃 Running the bootstrap suite...');
-    const initialResults = await (0, test_runner_1.runTests)(generatedTests, config, workDir);
+    const initialResults = await (0, test_runner_1.runTests)(generatedTests, config, workDir, session);
     const failedTests = initialResults
         .map((result, i) => ({ test: generatedTests[i], result }))
         .filter(({ result }) => !result.passed);
@@ -33862,7 +33864,7 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     if (failedTests.length > 0) {
         if (config.maxRetries > 0)
             core.info(`🔧 Healing ${failedTests.length} failing bootstrap test(s)...`);
-        const healing = await (0, self_healer_1.healFailedTests)(failedTests, emptyChangeContext(), config, llmClient, workDir, protect);
+        const healing = await (0, self_healer_1.healFailedTests)(failedTests, emptyChangeContext(), config, llmClient, workDir, protect, session);
         healed = healing.healed;
         healedResults = healing.results;
         suspectedBugs = healing.suspectedBugs;
@@ -33971,7 +33973,7 @@ function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, s
         body += '- Your login endpoint is **rate-limiting** the run (CI signs in repeatedly from one IP)\n';
         body += '- Sign-in is genuinely broken — worth checking by hand\n\n';
         if (setup.authSetupOutput) {
-            body += 'The sign-in step (“Signing in once via auth.setup.ts” in the workflow log) failed with:\n\n```\n' + setup.authSetupOutput.trim().substring(0, 1200) + '\n```\n\n';
+            body += 'The sign-in step (“Signing in via auth.setup.ts” in the workflow log) failed with:\n\n```\n' + setup.authSetupOutput.trim().substring(0, 1200) + '\n```\n\n';
         }
         else {
             body += 'The exact error is in the workflow log under the `[setup]` project. ';
@@ -36796,7 +36798,7 @@ const core = __importStar(__nccwpck_require__(7484));
 const test_runner_1 = __nccwpck_require__(7194);
 const auth_scaffold_1 = __nccwpck_require__(7972);
 const assertion_lint_1 = __nccwpck_require__(3473);
-async function healFailedTests(failedTests, context, config, llmClient, workDir, protect) {
+async function healFailedTests(failedTests, context, config, llmClient, workDir, protect, session) {
     const healed = [];
     const results = [];
     const suspectedBugs = [];
@@ -36860,7 +36862,7 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir,
                 }
                 // Write and run the healed test
                 await (0, test_runner_1.writeTests)([healedTest], workDir, config.testDir, protect);
-                const [healedResult] = await (0, test_runner_1.runTests)([healedTest], config, workDir);
+                const [healedResult] = await (0, test_runner_1.runTests)([healedTest], config, workDir, session);
                 if (healedResult.passed) {
                     core.info(`✅ ${test.filename} healed on attempt ${attempt}`);
                     healed.push(healedTest);
@@ -37092,11 +37094,14 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     (0, test_runner_1.ensurePlaywrightConfig)(workDir, config.baseUrl, config.testDir);
     // Specs run one file at a time: give authenticated ones a session up front
     // (same reason as bootstrap — see ensureAuthSession).
+    let session;
     if (writtenTests.some((t) => t.code.includes('storageState'))) {
-        await (0, test_runner_1.ensureAuthSession)(workDir, config);
+        const auth = await (0, test_runner_1.ensureAuthSession)(workDir, config);
+        if (auth.status === 'ok')
+            session = { rotates: false, stopped: false };
     }
     core.info('🏃 Running tests...');
-    const initialResults = await (0, test_runner_1.runTests)(writtenTests, config, workDir);
+    const initialResults = await (0, test_runner_1.runTests)(writtenTests, config, workDir, session);
     // 4. Self-heal failed tests
     const failedTests = initialResults
         // Pair against writtenTests: runTests was given that array, so index i
@@ -37109,7 +37114,7 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     let suspectedBugs = [];
     if (failedTests.length > 0 && config.maxRetries > 0) {
         core.info(`🔧 Attempting to heal ${failedTests.length} failed test(s)...`);
-        const healing = await (0, self_healer_1.healFailedTests)(failedTests, context, config, llmClient, workDir);
+        const healing = await (0, self_healer_1.healFailedTests)(failedTests, context, config, llmClient, workDir, undefined, session);
         healedTests = healing.healed;
         healedResults = healing.results;
         suspectedBugs = healing.suspectedBugs;
@@ -37186,6 +37191,7 @@ exports.playwrightConfigSource = playwrightConfigSource;
 exports.ensurePlaywrightConfig = ensurePlaywrightConfig;
 exports.runPlaywrightFile = runPlaywrightFile;
 exports.ensureAuthSession = ensureAuthSession;
+exports.looksSignedOut = looksSignedOut;
 exports.writeTests = writeTests;
 exports.runTests = runTests;
 exports.cleanupTests = cleanupTests;
@@ -37391,7 +37397,7 @@ async function runPlaywrightFile(filter, workDir, config, env = process.env) {
     return { exitCode, stdout, stderr };
 }
 /**
- * Sign in once before the suite runs. Specs are executed one file at a time
+ * Sign in before the suite runs. Specs are executed one file at a time
  * (see runTests), so Playwright project dependencies only produce the session
  * file when the customer's own config routes THAT spec through a project that
  * depends on the setup. A repo that already had a config (TME-web: authed specs
@@ -37405,7 +37411,7 @@ async function ensureAuthSession(workDir, config, env = process.env) {
         core.info('🔐 TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will be reported as needing credentials');
         return { status: 'skipped' };
     }
-    core.info(`🔐 Signing in once via ${auth_scaffold_1.AUTH_SETUP_FILENAME} so authenticated specs have a session...`);
+    core.info(`🔐 Signing in via ${auth_scaffold_1.AUTH_SETUP_FILENAME} so authenticated specs have a session...`);
     const { exitCode, stdout, stderr } = await runPlaywrightFile(auth_scaffold_1.AUTH_SETUP_FILENAME, workDir, config, env);
     const output = [stdout, stderr].filter(Boolean).join('\n');
     if (exitCode !== 0) {
@@ -37428,6 +37434,52 @@ async function ensureAuthSession(workDir, config, env = process.env) {
     }
     core.info('✅ Signed in — session saved for the authenticated specs');
     return { status: 'ok' };
+}
+/** The spec loads a saved session file (an inline storageState object, such as an empty one for a logged-out spec, does not count). */
+function loadsSavedSession(code) {
+    return /storageState\s*:\s*['"`]/.test(code);
+}
+/** The failure looks like the session was gone: sent to the sign-in page, or a 401. */
+function looksSignedOut(error) {
+    return !!error && (/\/(log-?in|sign-?in)\b/i.test(error) || /\b401\b/.test(error));
+}
+async function renewSession(workDir, config, session) {
+    const sessionFile = path.join(workDir, auth_scaffold_1.STORAGE_STATE_PATH);
+    const previous = `${sessionFile}.prev`;
+    let movedAside = false;
+    let output = '';
+    try {
+        // Move the session aside so the setup's own session reuse cannot apply.
+        if (fs.existsSync(sessionFile)) {
+            fs.renameSync(sessionFile, previous);
+            movedAside = true;
+        }
+        const run = await runPlaywrightFile(auth_scaffold_1.AUTH_SETUP_FILENAME, workDir, config);
+        output = [run.stdout, run.stderr].filter(Boolean).join('\n');
+        if (run.exitCode === 0 && fs.existsSync(sessionFile)) {
+            try {
+                fs.rmSync(previous, { force: true });
+            }
+            catch {
+                // The new session is in place; a leftover .prev file is harmless.
+            }
+            return true;
+        }
+    }
+    catch (err) {
+        output = err instanceof Error ? err.message : String(err);
+    }
+    session.stopped = true;
+    core.warning(`⚠️ Signing in again via ${auth_scaffold_1.AUTH_SETUP_FILENAME} failed — the rest of this run reuses the earlier session`);
+    core.info(`   Setup output:\n${output.substring(0, 800)}`);
+    try {
+        if (movedAside)
+            fs.renameSync(previous, sessionFile);
+    }
+    catch (err) {
+        core.warning(`Could not restore the earlier session: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return false;
 }
 function bootstrapName(relative, taken) {
     const m = relative.match(safe_paths_1.ALLOWED_SUFFIX);
@@ -37494,7 +37546,40 @@ async function writeTests(tests, workDir, testDir = 'e2e', protect) {
     }
     return writtenFiles;
 }
-async function runTests(tests, config, workDir) {
+async function runSpec(test, filePath, config, workDir) {
+    const startTime = Date.now();
+    try {
+        // Pass just the filename as a regex filter — Playwright matches against absolute paths
+        const basename = path.basename(filePath);
+        const { exitCode, stdout, stderr } = await runPlaywrightFile(basename, workDir, config);
+        const duration = Date.now() - startTime;
+        const passed = exitCode === 0;
+        if (passed) {
+            core.info(`✅ ${test.filename} passed (${duration}ms)`);
+        }
+        else {
+            core.warning(`❌ ${test.filename} failed (${duration}ms)`);
+            // Log stderr first (usually has the real error), then stdout
+            const errorOutput = [stderr, stdout].filter(Boolean).join('\n');
+            const errorSnippet = errorOutput.substring(0, 800);
+            if (errorSnippet) {
+                core.info(`   Error output:\n${errorSnippet}`);
+            }
+        }
+        return { filename: test.filename, passed, duration, error: passed ? undefined : stderr || stdout, stdout };
+    }
+    catch (error) {
+        const duration = Date.now() - startTime;
+        core.warning(`❌ ${test.filename} errored: ${error}`);
+        return {
+            filename: test.filename,
+            passed: false,
+            duration,
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
+async function runTests(tests, config, workDir, session) {
     const results = [];
     for (const test of tests) {
         // Independent of writeTests' check: a test can reach runTests without
@@ -37513,43 +37598,21 @@ async function runTests(tests, config, workDir) {
             });
             continue;
         }
-        const startTime = Date.now();
-        try {
-            // Pass just the filename as a regex filter — Playwright matches against absolute paths
-            const basename = path.basename(filePath);
-            const { exitCode, stdout, stderr } = await runPlaywrightFile(basename, workDir, config);
-            const duration = Date.now() - startTime;
-            const passed = exitCode === 0;
-            results.push({
-                filename: test.filename,
-                passed,
-                duration,
-                error: passed ? undefined : stderr || stdout,
-                stdout,
-            });
-            if (passed) {
-                core.info(`✅ ${test.filename} passed (${duration}ms)`);
-            }
-            else {
-                core.warning(`❌ ${test.filename} failed (${duration}ms)`);
-                // Log stderr first (usually has the real error), then stdout
-                const errorOutput = [stderr, stdout].filter(Boolean).join('\n');
-                const errorSnippet = errorOutput.substring(0, 800);
-                if (errorSnippet) {
-                    core.info(`   Error output:\n${errorSnippet}`);
+        const authed = session !== undefined && !session.stopped && loadsSavedSession(test.code);
+        if (authed && session.rotates)
+            await renewSession(workDir, config, session);
+        let result = await runSpec(test, filePath, config, workDir);
+        if (authed && !result.passed && looksSignedOut(result.error) && !session.rotates && !session.stopped) {
+            core.info(`🔐 ${test.filename}: signing in again and re-running it once, in case the shared session was revoked`);
+            if (await renewSession(workDir, config, session)) {
+                result = await runSpec(test, filePath, config, workDir);
+                if (result.passed) {
+                    session.rotates = true;
+                    core.info('🔐 It passed with a fresh session, so this app rotates sessions: each authenticated spec now signs in first');
                 }
             }
         }
-        catch (error) {
-            const duration = Date.now() - startTime;
-            results.push({
-                filename: test.filename,
-                passed: false,
-                duration,
-                error: error instanceof Error ? error.message : String(error),
-            });
-            core.warning(`❌ ${test.filename} errored: ${error}`);
-        }
+        results.push(result);
     }
     return results;
 }
