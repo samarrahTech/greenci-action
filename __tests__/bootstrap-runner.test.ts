@@ -180,7 +180,7 @@ describe('runBootstrap — auth scaffold + config commit', () => {
 
     expect(rejectTautologies).toHaveBeenCalledWith([hollow, authedSpec]);
     expect(testRunner.writeTests).toHaveBeenCalledWith([authedSpec], '/work', 'e2e', expect.anything());
-    expect(testRunner.runTests).toHaveBeenCalledWith([authedSpec], config, '/work');
+    expect(testRunner.runTests).toHaveBeenCalledWith([authedSpec], config, '/work', { rotates: false, stopped: false });
     expect(outcome.testsGenerated).toBe(1);
     const body: string = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][5];
     expect(body).toContain('Discarded: tests that could not fail');
@@ -240,6 +240,26 @@ describe('runBootstrap — auth scaffold + config commit', () => {
       (testRunner.runTests as jest.Mock).mock.invocationCallOrder[0],
     ];
     expect(order[0]).toBeLessThan(order[1]);
+  });
+
+  // GC-089: the suite and the heal reruns share one renewal record, so an app
+  // found to rotate sessions in the suite also gets fresh sign-ins in healing.
+  it('shares one session renewal record between the suite and healing', async () => {
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
+    (testRunner.runTests as jest.Mock).mockResolvedValue([{ filename: 'expenses.spec.ts', passed: false, duration: 1, error: 'boom' }]);
+    await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    const session = (testRunner.runTests as jest.Mock).mock.calls[0][3];
+    expect(session).toEqual({ rotates: false, stopped: false });
+    expect((healer.healFailedTests as jest.Mock).mock.calls[0][6]).toBe(session);
+  });
+
+  it('does not renew a session that never signed in', async () => {
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
+    (testRunner.ensureAuthSession as jest.Mock).mockResolvedValue({ status: 'failed', output: 'TimeoutError: login' });
+    await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    expect((testRunner.runTests as jest.Mock).mock.calls[0][3]).toBeUndefined();
   });
 
   // Review finding: classification is deterministic — it must run with

@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
-import { runTests, writeTests, type ProtectExisting } from './test-runner';
+import { runTests, writeTests, type ProtectExisting, type SessionRenewal } from './test-runner';
 import { classifyAuthFailure, hasTestCredentials, type AuthFailureKind } from './auth-scaffold';
 import { lintAssertions } from './assertion-lint';
 
@@ -20,6 +20,7 @@ export async function healFailedTests(
   llmClient: ILLMClient,
   workDir: string,
   protect?: ProtectExisting,
+  session?: SessionRenewal,
 ): Promise<HealingOutcome> {
   const healed: GeneratedTest[] = [];
   const results: TestResult[] = [];
@@ -96,7 +97,7 @@ export async function healFailedTests(
         }
         // Write and run the healed test
         await writeTests([healedTest], workDir, config.testDir, protect);
-        const [healedResult] = await runTests([healedTest], config, workDir);
+        const [healedResult] = await runTests([healedTest], config, workDir, session);
 
         if (healedResult.passed) {
           core.info(`✅ ${test.filename} healed on attempt ${attempt}`);

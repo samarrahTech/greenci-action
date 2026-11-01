@@ -1,3 +1,4 @@
+import * as core from '@actions/core';
 import * as exec from '@actions/exec';
 import { writeTests, runTests, cleanupTests, ensureAuthSession, detectDevServer, playwrightConfigSource, ensurePlaywright } from '../src/test-runner';
 import { ActionConfig, GeneratedTest } from '../src/types';
@@ -10,6 +11,7 @@ const mockMkdirSync = jest.fn();
 const mockWriteFileSync = jest.fn();
 const mockUnlinkSync = jest.fn();
 const mockReadFileSync = jest.fn();
+const mockRenameSync = jest.fn();
 jest.mock('fs', () => {
   const actual = jest.requireActual('fs');
   return {
@@ -19,6 +21,7 @@ jest.mock('fs', () => {
     writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
     unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
     readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+    renameSync: (...args: unknown[]) => mockRenameSync(...args),
   };
 });
 
@@ -492,5 +495,119 @@ describe('ensurePlaywright', () => {
     expect(installed).toBe(true);
     expect(mockExec.mock.calls[0][0]).toBe('npm');
     expect(mockExec.mock.calls[1][0]).toBe('node');
+  });
+});
+
+describe('session renewal (GC-089)', () => {
+  const authedFile: GeneratedTest = { ...testFile, filename: 'expenses.spec.ts', code: "test.use({ storageState: 'playwright/.auth/user.json' });" };
+  const session = '/work/playwright/.auth/user.json';
+  const ranFiles = () => (exec.exec as jest.Mock).mock.calls.map((c) => c[1].find((a: string) => /\.(spec|setup)\.ts$/.test(a)));
+  const signedOut = 'Expected pattern: /expenses/\nReceived string: "http://localhost:3000/login/?next=%2Fexpenses"';
+  // Each call returns the next exit code for that file (the last one repeats);
+  // a failing spec prints `failureOutput`.
+  const exitCodes = (codes: Record<string, number[]>, failureOutput = signedOut) =>
+    (exec.exec as jest.Mock).mockImplementation(async (_c: string, args: string[], opts: { listeners?: { stderr?: (d: Buffer) => void } }) => {
+      const file = args.find((a) => /\.(spec|setup)\.ts$/.test(a)) as string;
+      const list = codes[file] ?? [0];
+      const code = list.length > 1 ? list.shift() : list[0];
+      if (code !== 0 && file.endsWith('.spec.ts')) opts.listeners?.stderr?.(Buffer.from(failureOutput));
+      return code;
+    });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRenameSync.mockReset();
+    mockExistsSync.mockReset().mockReturnValue(true);
+    (exec.exec as jest.Mock).mockReset().mockResolvedValue(0);
+  });
+
+  it('keeps sharing one session while authenticated specs pass', async () => {
+    const renewal = { rotates: false, stopped: false };
+    await runTests([authedFile, testFile, authedFile], mockConfig, '/work', renewal);
+    expect(ranFiles()).toEqual(['expenses.spec.ts', 'login.spec.ts', 'expenses.spec.ts']);
+    expect(renewal).toEqual({ rotates: false, stopped: false });
+  });
+
+  it('re-runs a failed authenticated spec once with a fresh sign-in, then signs in before every later one', async () => {
+    exitCodes({ 'expenses.spec.ts': [1, 0] });
+    const renewal = { rotates: false, stopped: false };
+    const results = await runTests([authedFile, testFile, authedFile], mockConfig, '/work', renewal);
+    expect(ranFiles()).toEqual(['expenses.spec.ts', 'auth.setup.ts', 'expenses.spec.ts', 'login.spec.ts', 'auth.setup.ts', 'expenses.spec.ts']);
+    expect(results.map((r) => r.passed)).toEqual([true, true, true]);
+    expect(renewal.rotates).toBe(true);
+    // The session is moved aside so the setup cannot reuse it.
+    expect(mockRenameSync).toHaveBeenCalledWith(session, `${session}.prev`);
+  });
+
+  it('reports the re-run failure and stays in shared mode when a fresh session does not help', async () => {
+    exitCodes({ 'expenses.spec.ts': [1] });
+    const renewal = { rotates: false, stopped: false };
+    const results = await runTests([authedFile], mockConfig, '/work', renewal);
+    expect(ranFiles()).toEqual(['expenses.spec.ts', 'auth.setup.ts', 'expenses.spec.ts']);
+    expect(results[0].passed).toBe(false);
+    expect(renewal.rotates).toBe(false);
+  });
+
+  it('does not re-run specs that do not load the session, or without a renewal record', async () => {
+    exitCodes({ 'login.spec.ts': [1], 'expenses.spec.ts': [1] });
+    await runTests([testFile], mockConfig, '/work', { rotates: false, stopped: false });
+    await runTests([authedFile], mockConfig, '/work');
+    expect(ranFiles()).toEqual(['login.spec.ts', 'expenses.spec.ts']);
+  });
+
+  it('does not sign in again for a failure that does not look signed out', async () => {
+    exitCodes({ 'expenses.spec.ts': [1] }, "locator('text=Vendor 1') not found");
+    const renewal = { rotates: false, stopped: false };
+    await runTests([authedFile], mockConfig, '/work', renewal);
+    expect(ranFiles()).toEqual(['expenses.spec.ts']);
+  });
+
+  it('treats a spec with an inline (logged-out) storageState as not authenticated', async () => {
+    exitCodes({ 'expenses.spec.ts': [1] });
+    const loggedOut = { ...authedFile, code: 'test.use({ storageState: { cookies: [], origins: [] } });' };
+    await runTests([loggedOut], mockConfig, '/work', { rotates: false, stopped: false });
+    expect(ranFiles()).toEqual(['expenses.spec.ts']);
+  });
+
+  it('never restores a session file it did not move aside', async () => {
+    mockExistsSync.mockImplementation((p: string) => p !== session);
+    exitCodes({ 'auth.setup.ts': [1] });
+    await runTests([authedFile], mockConfig, '/work', { rotates: true, stopped: false });
+    expect(mockRenameSync).not.toHaveBeenCalled();
+  });
+
+  it('restores the earlier session and stops renewing when signing in again fails', async () => {
+    exitCodes({ 'auth.setup.ts': [1] });
+    const renewal = { rotates: true, stopped: false };
+    const results = await runTests([authedFile, authedFile], mockConfig, '/work', renewal);
+    expect(ranFiles()).toEqual(['auth.setup.ts', 'expenses.spec.ts', 'expenses.spec.ts']);
+    expect(mockRenameSync).toHaveBeenLastCalledWith(`${session}.prev`, session);
+    expect(renewal.stopped).toBe(true);
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('reuses the earlier session'));
+    expect(results.every((r) => r.passed)).toBe(true);
+  });
+
+  it('treats a setup that exits cleanly without writing the session as a failed renewal', async () => {
+    // The session exists until it is moved aside; the setup then writes nothing.
+    let moved = false;
+    mockRenameSync.mockImplementation((from: string) => {
+      moved = from === session ? true : moved;
+    });
+    mockExistsSync.mockImplementation((p: string) => p !== session || !moved);
+    const renewal = { rotates: true, stopped: false };
+    await runTests([authedFile], mockConfig, '/work', renewal);
+    expect(renewal.stopped).toBe(true);
+    expect(mockRenameSync).toHaveBeenLastCalledWith(`${session}.prev`, session);
+  });
+
+  it('does not let a renewal exception abort the run', async () => {
+    mockRenameSync.mockImplementationOnce(() => {
+      throw new Error('EBUSY');
+    });
+    const renewal = { rotates: true, stopped: false };
+    const results = await runTests([authedFile], mockConfig, '/work', renewal);
+    expect(renewal.stopped).toBe(true);
+    expect(results).toHaveLength(1);
+    expect(ranFiles()).toEqual(['expenses.spec.ts']);
   });
 });
