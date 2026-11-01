@@ -113,6 +113,46 @@ describe('healFailedTests', () => {
     expect(results[0].passed).toBe(true);
   });
 
+  it('sends the healer the page each failing run reached, apart from the error (GC-092)', async () => {
+    const firstPage = '- textbox "Vendor" [ref=e5]';
+    const secondPage = '- spinbutton "Amount" [ref=e7]';
+    (mockLLMClient.healTest as jest.Mock).mockResolvedValue({ ...failedTest, code: 'still broken' });
+    (testRunner.runTests as jest.Mock).mockResolvedValue([
+      { ...failedResult, error: 'Timeout waiting for getByLabel(\'Amount\')', pageSnapshot: secondPage },
+    ]);
+
+    await healFailedTests(
+      [{ test: failedTest, result: { ...failedResult, pageSnapshot: firstPage } }],
+      mockContext,
+      { ...mockConfig, maxRetries: 2 },
+      mockLLMClient,
+      '/work'
+    );
+
+    const [first, second] = (mockLLMClient.healTest as jest.Mock).mock.calls.map((c) => c[0]);
+    expect(first.error).toBe('Element not found');
+    expect(first.pageSnapshot).toBe(firstPage);
+    expect(second.error).toBe('Timeout waiting for getByLabel(\'Amount\')');
+    expect(second.pageSnapshot).toBe(secondPage);
+  });
+
+  it('keeps the last page when a rerun broke before any page loaded', async () => {
+    (mockLLMClient.healTest as jest.Mock).mockResolvedValue({ ...failedTest, code: 'still broken' });
+    (testRunner.runTests as jest.Mock).mockResolvedValue([{ ...failedResult, error: 'SyntaxError' }]);
+
+    await healFailedTests(
+      [{ test: failedTest, result: { ...failedResult, pageSnapshot: '- textbox "Vendor"' } }],
+      mockContext,
+      { ...mockConfig, maxRetries: 2 },
+      mockLLMClient,
+      '/work'
+    );
+
+    const second = (mockLLMClient.healTest as jest.Mock).mock.calls[1][0];
+    expect(second.error).toBe('SyntaxError');
+    expect(second.pageSnapshot).toBe('- textbox "Vendor"');
+  });
+
   it('should retry up to maxRetries', async () => {
     const healedTest = { ...failedTest, code: 'still broken' };
     (mockLLMClient.healTest as jest.Mock).mockResolvedValue(healedTest);

@@ -96,11 +96,15 @@ export interface TestResult {
   duration: number;
   error?: string;
   stdout?: string;
+  /** Accessibility tree of the page the failing spec had reached (see readPageSnapshot). */
+  pageSnapshot?: string;
 }
 
 export interface SelfHealRequest {
   test: GeneratedTest;
   error: string;
+  /** Accessibility tree of the page the failing run reached (see readPageSnapshot). Page data, not part of the error. */
+  pageSnapshot?: string;
   attempt: number;
   context: ChangeContext;
 }

@@ -84,7 +84,7 @@ export class AnthropicClient implements ILLMClient {
     core.info(`Self-healing via Anthropic API (${model}), attempt ${request.attempt}`);
     const content = await this.complete(
       SELF_HEALING_SYSTEM,
-      buildHealPrompt(request.test.code, request.error, request.attempt, request.context),
+      buildHealPrompt(request.test.code, request.error, request.attempt, request.context, request.pageSnapshot),
       model,
     );
 

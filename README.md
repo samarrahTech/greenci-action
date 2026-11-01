@@ -290,7 +290,8 @@ GreenCI posts a detailed summary comment on your PR:
 - The PR diff (patch hunks of changed files) and the list of changed file paths
 - Detected routes, component names, and API endpoint signatures
 - The contents of your existing E2E test files (so generated tests match your conventions)
-- On self-heal: the failing test's code and its error output
+- On bootstrap: the rendered HTML of the app pages your journeys name (fetched without signing in)
+- On self-heal: the failing test's code, its error output, and Playwright's accessibility snapshot of the page the test had reached when it failed (roles, labels and visible text, which can include the test user's data on signed-in pages; capped at 8,000 characters; the snapshot itself is not stored, but the heal verdict's short reasoning, which is stored and shown in the PR report, can quote it)
 - On migrate: your Cypress test source
 - If `project-id` is set: Playwright trace archives for the dashboard
 

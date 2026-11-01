@@ -206,6 +206,7 @@ class GreenCIClient implements ILLMClient {
         body: JSON.stringify({
           test: request.test,
           error: request.error,
+          pageSnapshot: request.pageSnapshot,
           attempt: request.attempt,
           // Flatten to strings, exactly as the generate call above does. The
           // API declares these as string arrays; routes/components/apiEndpoints
