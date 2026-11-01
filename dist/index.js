@@ -37602,7 +37602,7 @@ async function runTests(tests, config, workDir, session) {
         if (authed && session.rotates)
             await renewSession(workDir, config, session);
         let result = await runSpec(test, filePath, config, workDir);
-        if (authed && !result.passed && looksSignedOut(result.error) && !session.rotates && !session.stopped) {
+        if (authed && !result.passed && looksSignedOut(`${result.error ?? ''}\n${result.stdout ?? ''}`) && !session.rotates && !session.stopped) {
             core.info(`🔐 ${test.filename}: signing in again and re-running it once, in case the shared session was revoked`);
             if (await renewSession(workDir, config, session)) {
                 result = await runSpec(test, filePath, config, workDir);

@@ -555,6 +555,24 @@ describe('session renewal (GC-089)', () => {
     expect(ranFiles()).toEqual(['login.spec.ts', 'expenses.spec.ts']);
   });
 
+  // GC-093: the line reporter prints the redirect on stdout; stderr may hold unrelated noise.
+  it('sees a sign-in redirect printed on stdout even when stderr has other output', async () => {
+    let specRuns = 0;
+    (exec.exec as jest.Mock).mockImplementation(
+      async (_c: string, args: string[], opts: { listeners?: { stdout?: (d: Buffer) => void; stderr?: (d: Buffer) => void } }) => {
+        if (!args.includes('expenses.spec.ts')) return 0;
+        if (++specRuns > 1) return 0;
+        opts.listeners?.stderr?.(Buffer.from('(node:1) ExperimentalWarning: something'));
+        opts.listeners?.stdout?.(Buffer.from(signedOut));
+        return 1;
+      },
+    );
+    const renewal = { rotates: false, stopped: false };
+    await runTests([authedFile], mockConfig, '/work', renewal);
+    expect(ranFiles()).toEqual(['expenses.spec.ts', 'auth.setup.ts', 'expenses.spec.ts']);
+    expect(renewal.rotates).toBe(true);
+  });
+
   it('does not sign in again for a failure that does not look signed out', async () => {
     exitCodes({ 'expenses.spec.ts': [1] }, "locator('text=Vendor 1') not found");
     const renewal = { rotates: false, stopped: false };
