@@ -1,6 +1,18 @@
 import * as core from '@actions/core';
 import { ActionConfig, LLMProvider, OperationMode } from './types';
 
+// An unreadable value turns the snapshot off: a typo should err on the side
+// of sending less page content.
+function pageSnapshotInput(): boolean {
+  if (!core.getInput('page-snapshot')) return true;
+  try {
+    return core.getBooleanInput('page-snapshot');
+  } catch {
+    core.warning("page-snapshot must be 'true' or 'false' — not sending page snapshots");
+    return false;
+  }
+}
+
 export function getConfig(): ActionConfig {
   const provider = core.getInput('llm-provider') || 'greenci';
   const validProviders: LLMProvider[] = ['greenci', 'anthropic', 'openai', 'bedrock', 'azure-openai', 'ollama'];
@@ -43,6 +55,7 @@ export function getConfig(): ActionConfig {
     // The heal API caps attempt at 5; clamp so extra retries don't 400
     maxRetries: Math.min(Math.max(parseInt(core.getInput('max-retries') || '2', 10) || 0, 0), 5),
     autoCommit: (core.getInput('auto-commit') || 'true') === 'true',
+    sendPageSnapshot: pageSnapshotInput(),
     greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
     mode,
     cypressDir: core.getInput('cypress-dir') || 'cypress/e2e',

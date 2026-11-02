@@ -616,7 +616,9 @@ async function runSpec(test: GeneratedTest, filePath: string, config: ActionConf
       duration,
       error: stderr || stdout,
       stdout,
-      pageSnapshot: readPageSnapshot(`${stdout}\n${stderr}`, workDir, path.relative(workDir, filePath)),
+      pageSnapshot: config.sendPageSnapshot
+        ? readPageSnapshot(`${stdout}\n${stderr}`, workDir, path.relative(workDir, filePath))
+        : undefined,
     };
   } catch (error) {
     const duration = Date.now() - startTime;

@@ -34080,6 +34080,19 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getConfig = getConfig;
 const core = __importStar(__nccwpck_require__(7484));
+// An unreadable value turns the snapshot off: a typo should err on the side
+// of sending less page content.
+function pageSnapshotInput() {
+    if (!core.getInput('page-snapshot'))
+        return true;
+    try {
+        return core.getBooleanInput('page-snapshot');
+    }
+    catch {
+        core.warning("page-snapshot must be 'true' or 'false' — not sending page snapshots");
+        return false;
+    }
+}
 function getConfig() {
     const provider = core.getInput('llm-provider') || 'greenci';
     const validProviders = ['greenci', 'anthropic', 'openai', 'bedrock', 'azure-openai', 'ollama'];
@@ -34115,6 +34128,7 @@ function getConfig() {
         // The heal API caps attempt at 5; clamp so extra retries don't 400
         maxRetries: Math.min(Math.max(parseInt(core.getInput('max-retries') || '2', 10) || 0, 0), 5),
         autoCommit: (core.getInput('auto-commit') || 'true') === 'true',
+        sendPageSnapshot: pageSnapshotInput(),
         greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
         mode,
         cypressDir: core.getInput('cypress-dir') || 'cypress/e2e',
@@ -37756,7 +37770,9 @@ async function runSpec(test, filePath, config, workDir) {
             duration,
             error: stderr || stdout,
             stdout,
-            pageSnapshot: readPageSnapshot(`${stdout}\n${stderr}`, workDir, path.relative(workDir, filePath)),
+            pageSnapshot: config.sendPageSnapshot
+                ? readPageSnapshot(`${stdout}\n${stderr}`, workDir, path.relative(workDir, filePath))
+                : undefined,
         };
     }
     catch (error) {

@@ -50,6 +50,7 @@ describe('generateAndRunTests', () => {
   journeys: '',
     maxRetries: 2,
     autoCommit: true,
+    sendPageSnapshot: true,
     greenCIApiUrl: 'https://api.greenci.ai',
   };
 

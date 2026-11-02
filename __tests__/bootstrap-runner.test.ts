@@ -140,6 +140,7 @@ describe('runBootstrap — auth scaffold + config commit', () => {
     baseUrl: 'http://localhost:3000',
     maxRetries: 0,
     autoCommit: true,
+    sendPageSnapshot: true,
     greenCIApiUrl: 'https://api.greenci.ai',
     mode: 'bootstrap',
     cypressDir: 'cypress/e2e',

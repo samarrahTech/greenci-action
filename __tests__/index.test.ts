@@ -32,6 +32,7 @@ const mockConfig = {
   baseUrl: 'http://localhost:3000',
   maxRetries: 2,
   autoCommit: true,
+  sendPageSnapshot: true,
   greenCIApiUrl: 'https://api.greenci.ai',
   mode: 'generate' as const,
   cypressDir: 'cypress/e2e',
