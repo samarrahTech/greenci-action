@@ -90,6 +90,7 @@ jobs:
 | `base-url` | App base URL for E2E tests | ❌ | `http://localhost:3000` |
 | `max-retries` | Max self-healing retries | ❌ | `2` |
 | `auto-commit` | Auto-commit passing tests to PR | ❌ | `true` |
+| `page-snapshot` | Send Playwright's accessibility snapshot of the failing page with self-heal requests; `false` leaves the snapshot out (the error output, which can quote page text, is still sent; trace uploads are controlled by `project-id`) | ❌ | `true` |
 | `greenci-api-url` | GreenCI API endpoint | ❌ | `https://api.greenci.ai` |
 | `mode` | Operation mode (`generate`, `bootstrap`, or `migrate`) | ❌ | `generate` |
 | `journeys` | Bootstrap mode: critical user journeys in plain English, one per line (mention URL paths like `/login` to ground selectors in that page's real HTML) | ❌ | `''` |
@@ -291,9 +292,9 @@ GreenCI posts a detailed summary comment on your PR:
 - Detected routes, component names, and API endpoint signatures
 - The contents of your existing E2E test files (so generated tests match your conventions)
 - On bootstrap: the rendered HTML of the app pages your journeys name (fetched without signing in)
-- On self-heal: the failing test's code, its error output, and Playwright's accessibility snapshot of the page the test had reached when it failed (roles, labels and visible text, which can include the test user's data on signed-in pages; capped at 8,000 characters; the snapshot itself is not stored, but the heal verdict's short reasoning, which is stored and shown in the PR report, can quote it)
+- On self-heal: the failing test's code, its error output, and Playwright's accessibility snapshot of the page the test had reached when it failed (roles, labels and visible text, which can include the test user's data on signed-in pages; capped at 8,000 characters; the snapshot itself is not stored, but the heal verdict's short reasoning, which is stored and shown in the PR report, can quote it; set `page-snapshot: false` to leave the snapshot out; Playwright's error output can still quote text from the page)
 - On migrate: your Cypress test source
-- If `project-id` is set: Playwright trace archives for the dashboard
+- If `project-id` is set: Playwright trace archives for the dashboard (these hold DOM snapshots and screenshots of failing pages, whatever `page-snapshot` is set to)
 
 This data is processed transiently to generate tests and is not used to train models. If your repository cannot share code with an external API, do not use the hosted service.
 

@@ -11,6 +11,7 @@ export interface ActionConfig {
   baseUrl: string;
   maxRetries: number;
   autoCommit: boolean;
+  sendPageSnapshot: boolean;
   greenCIApiUrl: string;
   mode: OperationMode;
   cypressDir: string;

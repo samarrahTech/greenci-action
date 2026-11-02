@@ -4,10 +4,20 @@ import { getConfig } from '../src/config';
 jest.mock('@actions/core');
 
 const mockGetInput = core.getInput as jest.MockedFunction<typeof core.getInput>;
+const mockGetBooleanInput = core.getBooleanInput as jest.MockedFunction<typeof core.getBooleanInput>;
+
+// Mirrors @actions/core: YAML 1.2 core-schema booleans, TypeError otherwise.
+function booleanFromInput(name: string): boolean {
+  const value = mockGetInput(name);
+  if (['true', 'True', 'TRUE'].includes(value)) return true;
+  if (['false', 'False', 'FALSE'].includes(value)) return false;
+  throw new TypeError(`Input does not meet YAML 1.2 "Core Schema" specification: ${name}`);
+}
 
 describe('getConfig', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    mockGetBooleanInput.mockImplementation(booleanFromInput);
     mockGetInput.mockImplementation((name: string, _opts?: core.InputOptions) => {
       const defaults: Record<string, string> = {
         'api-key': 'mock-api-key-12345',
@@ -34,6 +44,7 @@ describe('getConfig', () => {
     expect(config.baseUrl).toBe('http://localhost:3000');
     expect(config.maxRetries).toBe(2);
     expect(config.autoCommit).toBe(true);
+    expect(config.sendPageSnapshot).toBe(true);
     expect(config.mode).toBe('generate');
     expect(config.cypressDir).toBe('cypress/e2e');
     expect(config.awsRegion).toBe('us-east-1');
@@ -47,6 +58,7 @@ describe('getConfig', () => {
         'llm-provider': 'openai',
         'max-retries': '5',
         'auto-commit': 'false',
+        'page-snapshot': 'false',
         'mode': 'migrate',
         'test-dir': 'tests',
         'base-url': 'http://localhost:8080',
@@ -57,9 +69,21 @@ describe('getConfig', () => {
     expect(config.llmProvider).toBe('openai');
     expect(config.maxRetries).toBe(5);
     expect(config.autoCommit).toBe(false);
+    expect(config.sendPageSnapshot).toBe(false);
     expect(config.mode).toBe('migrate');
     expect(config.testDir).toBe('tests');
     expect(config.baseUrl).toBe('http://localhost:8080');
+  });
+
+  it('accepts any YAML casing for page-snapshot', () => {
+    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'page-snapshot': 'False' } as Record<string, string>)[name] ?? '');
+    expect(getConfig().sendPageSnapshot).toBe(false);
+  });
+
+  it('turns page snapshots off, with a warning, on an unreadable page-snapshot value', () => {
+    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'page-snapshot': 'flase' } as Record<string, string>)[name] ?? '');
+    expect(getConfig().sendPageSnapshot).toBe(false);
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('page-snapshot'));
   });
 
   it('should throw on invalid provider', () => {

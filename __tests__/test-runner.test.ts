@@ -34,6 +34,7 @@ const mockConfig: ActionConfig = {
   baseUrl: 'http://localhost:3000',
   maxRetries: 2,
   autoCommit: true,
+  sendPageSnapshot: true,
   greenCIApiUrl: 'https://api.greenci.ai',
   mode: 'generate',
   cypressDir: 'cypress/e2e',
@@ -121,6 +122,32 @@ describe('runTests', () => {
     (exec.exec as jest.Mock).mockResolvedValue(1);
     const results = await runTests([testFile], mockConfig, '/work');
     expect(results[0].passed).toBe(false);
+  });
+
+  describe('failing page snapshot (page-snapshot input)', () => {
+    const failWithErrorContext = () =>
+      (exec.exec as jest.Mock).mockImplementation(async (_c: string, _a: string[], opts: { listeners?: { stdout?: (d: Buffer) => void } }) => {
+        opts.listeners?.stdout?.(Buffer.from('Error Context: test-results/login/error-context.md\n'));
+        return 1;
+      });
+
+    beforeEach(() => {
+      mockReadFileSync.mockReturnValue('# Page snapshot\n\n```yaml\n- textbox "Card number"\n```\n');
+    });
+
+    it('captures the page the failing spec reached', async () => {
+      failWithErrorContext();
+      const results = await runTests([testFile], mockConfig, '/work');
+      expect(results[0].pageSnapshot).toContain('textbox "Card number"');
+    });
+
+    it('neither reads nor returns the page when page-snapshot is false', async () => {
+      failWithErrorContext();
+      const results = await runTests([testFile], { ...mockConfig, sendPageSnapshot: false }, '/work');
+      expect(results[0].passed).toBe(false);
+      expect(results[0].pageSnapshot).toBeUndefined();
+      expect(mockReadFileSync).not.toHaveBeenCalledWith(expect.stringContaining('error-context.md'), expect.anything());
+    });
   });
 
   it('should handle exec throwing an error', async () => {

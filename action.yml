@@ -49,6 +49,10 @@ inputs:
     description: 'Auto-commit passing tests to PR'
     required: false
     default: 'true'
+  page-snapshot:
+    description: "Send Playwright's accessibility snapshot of the failing page with self-heal requests. 'false' leaves the snapshot out; the error output (which can quote page text) is still sent, and trace uploads (project-id) are separate"
+    required: false
+    default: 'true'
   greenci-api-url:
     description: 'GreenCI API endpoint'
     required: false
