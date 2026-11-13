@@ -12,6 +12,7 @@ import { uploadTraces } from './trace-uploader';
 import { uploadResults } from './results-uploader';
 import { runBootstrap } from './bootstrap-runner';
 import { resolveTestPath } from './safe-paths';
+import { removeBaseUrlOverride } from './test-runner';
 
 async function run(): Promise<void> {
   try {
@@ -174,6 +175,8 @@ async function run(): Promise<void> {
     } else {
       core.setFailed('An unexpected error occurred');
     }
+  } finally {
+    removeBaseUrlOverride(process.env.GITHUB_WORKSPACE || process.cwd());
   }
 }
 

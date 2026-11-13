@@ -87,7 +87,7 @@ jobs:
 | `llm-model` | LLM model override (BYO defaults: `claude-opus-4-8` / `gpt-4o`) | ❌ | `''` |
 | `aws-region` | AWS region for Bedrock (reserved for future BYO-LLM support) | ❌ | `us-east-1` |
 | `test-dir` | Directory to save generated tests | ❌ | `e2e` |
-| `base-url` | App base URL for E2E tests | ❌ | `http://localhost:3000` |
+| `base-url` | App base URL for E2E tests. When you set it, it replaces `baseURL` from your own `playwright.config` for the run (for example, to test a preview deployment); leave it unset to keep your config's value | ❌ | `http://localhost:3000` |
 | `max-retries` | Max self-healing retries | ❌ | `2` |
 | `auto-commit` | Auto-commit passing tests to PR | ❌ | `true` |
 | `page-snapshot` | Send Playwright's accessibility snapshot of the failing page with self-heal requests; `false` leaves the snapshot out (the error output, which can quote page text, is still sent; trace uploads are controlled by `project-id`) | ❌ | `true` |

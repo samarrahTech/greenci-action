@@ -42,6 +42,8 @@ describe('getConfig', () => {
     expect(config.llmProvider).toBe('greenci');
     expect(config.testDir).toBe('e2e');
     expect(config.baseUrl).toBe('http://localhost:3000');
+    // GC-108: an unset input must not override a repo config's baseURL.
+    expect(config.baseUrlExplicit).toBe(false);
     expect(config.maxRetries).toBe(2);
     expect(config.autoCommit).toBe(true);
     expect(config.sendPageSnapshot).toBe(true);
@@ -73,6 +75,7 @@ describe('getConfig', () => {
     expect(config.mode).toBe('migrate');
     expect(config.testDir).toBe('tests');
     expect(config.baseUrl).toBe('http://localhost:8080');
+    expect(config.baseUrlExplicit).toBe(true);
   });
 
   it('accepts any YAML casing for page-snapshot', () => {
