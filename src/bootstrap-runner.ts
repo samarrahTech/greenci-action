@@ -1,12 +1,13 @@
 import * as core from '@actions/core';
 import * as path from 'path';
+import { savePlaywrightDevDependency, restoreFiles, type DependencyOutcome } from './dev-dependency';
 import { ActionConfig, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
 import { parseJourneys, fetchPages } from './bootstrap-context';
 import { needsAuthScaffold, writeAuthScaffold, loginPathFromJourneys, AUTH_SETUP_FILENAME, type AuthFailureKind } from './auth-scaffold';
 import { readExistingTests, formatExistingTestsForAPI, type RenamedTest } from './existing-tests';
 import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, appDownResults, type SessionRenewal, writeTests, detectDevServer, playwrightConfigSource, type AuthSessionResult, type AuthSessionStatus, type ProtectExisting } from './test-runner';
 import { healFailedTests } from './self-healer';
-import { createBootstrapPR } from './git-ops';
+import { createBootstrapPR, unchangedOnDefaultBranch } from './git-ops';
 import { resolveTestPath } from './safe-paths';
 import { rejectTautologies, renderRejectedSection, type RejectedTest } from './assertion-lint';
 
@@ -170,10 +171,29 @@ export async function runBootstrap(
     if (createdConfig) commitFiles.push(path.join(workDir, 'playwright.config.ts'));
   }
 
+  // The specs import @playwright/test. When this run had to install it, add
+  // it to the repo for real, or the merged PR breaks tsc and lint.
+  let dependency: DependencyOutcome = { status: 'manual', files: [] };
+  if (installedPlaywright && config.autoCommit && token && passingFiles.length > 0) {
+    dependency = await savePlaywrightDevDependency(workDir);
+    if (dependency.status === 'saved' && !(await unchangedOnDefaultBranch(token, repo.owner, repo.repo, workDir, dependency.files))) {
+      core.warning(
+        'package.json or the lockfile in this checkout is not what the default branch holds, so the @playwright/test ' +
+          'dependency is left out of the PR (it would carry the other differences too). The PR explains how to add it by hand',
+      );
+      // Later workflow steps must not find a half-applied change either.
+      restoreFiles(dependency.files);
+      dependency = { status: 'manual', files: [] };
+    }
+    commitFiles.push(...dependency.files.map((f) => f.path));
+  }
+
   let prUrl: string | null = null;
   if (config.autoCommit && token && passingFiles.length > 0) {
     const body = buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, {
       installedPlaywright,
+      dependency: dependency.status,
+      savedDependency: dependency.files.map((f) => path.basename(f.path)),
       createdConfig,
       baseUrl: config.baseUrl,
       testDir: config.testDir,
@@ -213,6 +233,10 @@ export function buildBootstrapPRBody(
   suspectedBugs: SuspectedBug[],
   setup: {
     installedPlaywright: boolean;
+    /** What happened to the @playwright/test dependency (see savePlaywrightDevDependency). */
+    dependency?: DependencyOutcome['status'];
+    /** package.json and lockfile names this PR changes to add it. */
+    savedDependency?: string[];
     createdConfig: boolean;
     baseUrl: string;
     testDir: string;
@@ -317,8 +341,18 @@ export function buildBootstrapPRBody(
 
   if (setup.installedPlaywright || setup.createdConfig) {
     body += '### One-time setup to run these locally\n';
-    body += 'This repo didn\'t have Playwright yet (GreenCI installed it just for this run):\n\n';
-    body += '```bash\nnpm install -D @playwright/test\nnpx playwright install chromium\n```\n\n';
+    if (setup.dependency === 'saved' && setup.savedDependency && setup.savedDependency.length > 0) {
+      body += `This repo didn't have Playwright yet. This PR adds \`@playwright/test\` to \`devDependencies\` (${setup.savedDependency.map((f) => `\`${f}\``).join(', ')}), so after merging, install as usual and fetch the browser:\n\n`;
+      body += '```bash\nnpm install   # or your package manager\nnpx playwright install chromium\n```\n\n';
+    } else if (setup.installedPlaywright && setup.dependency !== 'declared') {
+      body += 'This repo didn\'t have Playwright yet (GreenCI installed it just for this run):\n\n';
+      body += '```bash\nnpm install -D @playwright/test\nnpx playwright install chromium\n```\n\n';
+    } else {
+      // Playwright is already a dependency (installed, or declared but not
+      // installed in this workflow): only the browser is missing locally.
+      body += 'Install your dependencies as usual, then fetch the browser:\n\n';
+      body += '```bash\nnpx playwright install chromium\n```\n\n';
+    }
     // With auth the generated config is part of this PR (it carries the
     // setup project); otherwise the customer adds it by hand.
     if (setup.createdConfig && setup.withAuth) {

@@ -33770,6 +33770,7 @@ exports.runBootstrap = runBootstrap;
 exports.buildBootstrapPRBody = buildBootstrapPRBody;
 const core = __importStar(__nccwpck_require__(7484));
 const path = __importStar(__nccwpck_require__(6928));
+const dev_dependency_1 = __nccwpck_require__(5679);
 const bootstrap_context_1 = __nccwpck_require__(4383);
 const auth_scaffold_1 = __nccwpck_require__(7972);
 const existing_tests_1 = __nccwpck_require__(2738);
@@ -33901,10 +33902,26 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
         if (createdConfig)
             commitFiles.push(path.join(workDir, 'playwright.config.ts'));
     }
+    // The specs import @playwright/test. When this run had to install it, add
+    // it to the repo for real, or the merged PR breaks tsc and lint.
+    let dependency = { status: 'manual', files: [] };
+    if (installedPlaywright && config.autoCommit && token && passingFiles.length > 0) {
+        dependency = await (0, dev_dependency_1.savePlaywrightDevDependency)(workDir);
+        if (dependency.status === 'saved' && !(await (0, git_ops_1.unchangedOnDefaultBranch)(token, repo.owner, repo.repo, workDir, dependency.files))) {
+            core.warning('package.json or the lockfile in this checkout is not what the default branch holds, so the @playwright/test ' +
+                'dependency is left out of the PR (it would carry the other differences too). The PR explains how to add it by hand');
+            // Later workflow steps must not find a half-applied change either.
+            (0, dev_dependency_1.restoreFiles)(dependency.files);
+            dependency = { status: 'manual', files: [] };
+        }
+        commitFiles.push(...dependency.files.map((f) => f.path));
+    }
     let prUrl = null;
     if (config.autoCommit && token && passingFiles.length > 0) {
         const body = buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, {
             installedPlaywright,
+            dependency: dependency.status,
+            savedDependency: dependency.files.map((f) => path.basename(f.path)),
             createdConfig,
             baseUrl: config.baseUrl,
             testDir: config.testDir,
@@ -34019,8 +34036,20 @@ function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, s
     }
     if (setup.installedPlaywright || setup.createdConfig) {
         body += '### One-time setup to run these locally\n';
-        body += 'This repo didn\'t have Playwright yet (GreenCI installed it just for this run):\n\n';
-        body += '```bash\nnpm install -D @playwright/test\nnpx playwright install chromium\n```\n\n';
+        if (setup.dependency === 'saved' && setup.savedDependency && setup.savedDependency.length > 0) {
+            body += `This repo didn't have Playwright yet. This PR adds \`@playwright/test\` to \`devDependencies\` (${setup.savedDependency.map((f) => `\`${f}\``).join(', ')}), so after merging, install as usual and fetch the browser:\n\n`;
+            body += '```bash\nnpm install   # or your package manager\nnpx playwright install chromium\n```\n\n';
+        }
+        else if (setup.installedPlaywright && setup.dependency !== 'declared') {
+            body += 'This repo didn\'t have Playwright yet (GreenCI installed it just for this run):\n\n';
+            body += '```bash\nnpm install -D @playwright/test\nnpx playwright install chromium\n```\n\n';
+        }
+        else {
+            // Playwright is already a dependency (installed, or declared but not
+            // installed in this workflow): only the browser is missing locally.
+            body += 'Install your dependencies as usual, then fetch the browser:\n\n';
+            body += '```bash\nnpx playwright install chromium\n```\n\n';
+        }
         // With auth the generated config is part of this PR (it carries the
         // setup project); otherwise the customer adds it by hand.
         if (setup.createdConfig && setup.withAuth) {
@@ -34505,6 +34534,248 @@ function extractEnvVars(source) {
 
 /***/ }),
 
+/***/ 5679:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.savePlaywrightDevDependency = savePlaywrightDevDependency;
+exports.gitBlobSha = gitBlobSha;
+exports.restoreFiles = restoreFiles;
+const core = __importStar(__nccwpck_require__(7484));
+const exec = __importStar(__nccwpck_require__(5236));
+const crypto = __importStar(__nccwpck_require__(6982));
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
+const PACKAGE = '@playwright/test';
+const MANUAL = { status: 'manual', files: [] };
+const has = (workDir, file) => fs.existsSync(path.join(workDir, file));
+function readPackageJson(workDir) {
+    try {
+        return JSON.parse(fs.readFileSync(path.join(workDir, 'package.json'), 'utf-8'));
+    }
+    catch {
+        return null;
+    }
+}
+function declared(workDir) {
+    const pkg = readPackageJson(workDir);
+    return pkg?.devDependencies?.[PACKAGE] ?? pkg?.dependencies?.[PACKAGE];
+}
+function installedVersion(workDir) {
+    try {
+        const version = JSON.parse(fs.readFileSync(path.join(workDir, 'node_modules', '@playwright', 'test', 'package.json'), 'utf-8')).version;
+        return typeof version === 'string' && /^\d+\.\d+\.\d+[\w.-]*$/.test(version) ? version : null;
+    }
+    catch {
+        return null;
+    }
+}
+/**
+ * How to add the dependency in this repo, or the reason not to try. Every
+ * supported route changes package.json and the lockfile only, installs
+ * nothing, and runs no package scripts: it executes in the customer's
+ * checkout with the action's environment.
+ */
+function plan(workDir, version) {
+    const spec = `${PACKAGE}@${version}`;
+    const yarnBerry = has(workDir, '.yarnrc.yml') || /^yarn@(?!1\.)/.test(String(readPackageJson(workDir)?.packageManager ?? ''));
+    if (has(workDir, 'pnpm-lock.yaml')) {
+        // pnpm refuses to add to a workspace root without -w.
+        return { tool: 'pnpm', lockfile: 'pnpm-lock.yaml', args: ['add', '-D', spec, '--lockfile-only', '--ignore-scripts', ...(has(workDir, 'pnpm-workspace.yaml') ? ['-w'] : [])] };
+    }
+    if (has(workDir, 'yarn.lock')) {
+        // Yarn 1 has no lockfile-only mode: `yarn add` installs the whole project.
+        if (!yarnBerry)
+            return 'Yarn 1 cannot update its lockfile without a full install';
+        // Plug'n'Play and zero-install repos also commit .pnp.cjs and .yarn/cache, which a lockfile-only add leaves behind.
+        if (has(workDir, '.pnp.cjs') || has(workDir, '.pnp.loader.mjs') || has(workDir, path.join('.yarn', 'cache'))) {
+            return 'this Yarn repo commits Plug\'n\'Play or cache files that must change together with the lockfile';
+        }
+        return { tool: 'yarn', lockfile: 'yarn.lock', args: ['add', '-D', spec, '--mode=update-lockfile'] };
+    }
+    // The bootstrap commit goes through the Git API as text; Bun's old binary lockfile cannot travel that way.
+    if (has(workDir, 'bun.lockb'))
+        return "Bun's binary lockfile (bun.lockb) cannot be committed by GreenCI";
+    if (has(workDir, 'bun.lock')) {
+        return { tool: 'bun', lockfile: 'bun.lock', args: ['add', '-d', spec, '--lockfile-only', '--ignore-scripts'] };
+    }
+    for (const lockfile of ['package-lock.json', 'npm-shrinkwrap.json']) {
+        if (has(workDir, lockfile)) {
+            return { tool: 'npm', lockfile, args: ['install', '-D', spec, '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'] };
+        }
+    }
+    // No lockfile here. If this is not the repository root, the lockfile may
+    // live further up (a monorepo package), and package.json alone would break
+    // the install there.
+    if (!has(workDir, '.git'))
+        return 'no lockfile was found next to package.json and this is not the repository root';
+    // No lockfile in the repo: declare the dependency and do not invent one.
+    return { tool: 'npm', lockfile: null, args: ['pkg', 'set', `devDependencies.${PACKAGE}=^${version}`] };
+}
+/**
+ * The line of a lockfile that names its format. A package manager newer than
+ * the one the repo uses can succeed and rewrite the whole file in a new
+ * format, which breaks the customer's own `npm ci` / `--frozen-lockfile`.
+ */
+function lockfileFormat(name, content) {
+    if (!content)
+        return '';
+    const text = content.toString('utf-8');
+    const marker = name === 'yarn.lock'
+        ? /^# yarn lockfile v\d+|^__metadata:\s*\n\s*version: \S+/m
+        : name === 'pnpm-lock.yaml'
+            ? /^lockfileVersion: \S+/m
+            : /"lockfileVersion":\s*\d+/;
+    return marker.exec(text)?.[0] ?? '';
+}
+/**
+ * A bootstrap PR on a repo that never had Playwright used to commit specs
+ * that import `@playwright/test` and leave the dependency out. Once merged,
+ * `tsc` and lint over the test folder broke until someone ran the install
+ * line from the PR body. Add the dependency properly instead: package.json
+ * and the lockfile together (package.json alone breaks `npm ci`), with the
+ * repo's own package manager, at the version the tests just passed on.
+ *
+ * Careful by design, because it edits files the customer owns: anything
+ * unexpected (a failed command, a lockfile rewritten in another format, a
+ * workspace catalog entry, any other tracked file touched) puts every file
+ * back and returns `manual`, and the PR keeps the install instructions. A
+ * bootstrap must never fail, or commit a surprise, over this.
+ */
+async function savePlaywrightDevDependency(workDir) {
+    if (!has(workDir, 'package.json'))
+        return MANUAL;
+    if (declared(workDir))
+        return { status: 'declared', files: [] };
+    const version = installedVersion(workDir);
+    if (!version)
+        return MANUAL;
+    const route = plan(workDir, version);
+    if (typeof route === 'string') {
+        core.info(`📦 ${PACKAGE} not added to devDependencies: ${route}. The PR explains how to add it by hand`);
+        return MANUAL;
+    }
+    // Everything the command may write. Files beyond package.json and the
+    // lockfile are watched only to detect a change we do not know how to commit.
+    const committable = ['package.json', ...(route.lockfile ? [route.lockfile] : [])];
+    const watched = [...committable, 'pnpm-workspace.yaml', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock'].filter((f, i, all) => all.indexOf(f) === i);
+    const before = new Map(watched.map((f) => [f, has(workDir, f) ? fs.readFileSync(path.join(workDir, f)) : null]));
+    const restore = () => {
+        for (const [file, content] of before) {
+            try {
+                if (content === null)
+                    fs.rmSync(path.join(workDir, file), { force: true });
+                else
+                    fs.writeFileSync(path.join(workDir, file), content);
+            }
+            catch {
+                // Best effort: the run goes on with whatever is on disk.
+            }
+        }
+    };
+    const giveUp = (why) => {
+        restore();
+        core.warning(`Could not add ${PACKAGE} to devDependencies with ${route.tool}: ${why}. The PR explains how to add it by hand`);
+        return MANUAL;
+    };
+    let output = '';
+    let code;
+    try {
+        code = await exec.exec(route.tool, route.args, {
+            cwd: workDir,
+            silent: true,
+            ignoreReturnCode: true,
+            listeners: { stdout: (d) => (output += d.toString()), stderr: (d) => (output += d.toString()) },
+        });
+    }
+    catch (err) {
+        return giveUp(err instanceof Error ? err.message : String(err));
+    }
+    if (code !== 0) {
+        const reason = output.split('\n').map((l) => l.trim()).filter(Boolean).slice(-3).join(' | ').slice(0, 400);
+        return giveUp(`exit ${code}${reason ? ` (${reason})` : ''}`);
+    }
+    const range = declared(workDir);
+    if (!range)
+        return giveUp('the command succeeded but package.json does not declare it');
+    // A pnpm catalog reference points at pnpm-workspace.yaml, which this PR would not carry.
+    if (!/^[\^~]?\d/.test(range))
+        return giveUp(`it was written as "${range}", which depends on other files`);
+    const now = (f) => (has(workDir, f) ? fs.readFileSync(path.join(workDir, f)) : null);
+    const differs = (f) => {
+        const was = before.get(f) ?? null;
+        const is = now(f);
+        return was === null || is === null ? was !== is : !was.equals(is);
+    };
+    const stray = watched.filter((f) => !committable.includes(f) && differs(f));
+    if (stray.length > 0)
+        return giveUp(`it also changed ${stray.join(', ')}`);
+    if (route.lockfile) {
+        if (!differs(route.lockfile))
+            return giveUp(`${route.lockfile} did not change`);
+        const was = lockfileFormat(route.lockfile, before.get(route.lockfile) ?? undefined);
+        const is = lockfileFormat(route.lockfile, now(route.lockfile) ?? undefined);
+        if (was !== is)
+            return giveUp(`it rewrote ${route.lockfile} in a different format (${was || 'unknown'} → ${is || 'unknown'}); the runner's ${route.tool} is not the version this repo uses`);
+    }
+    const files = committable.filter(differs).map((f) => ({ path: path.join(workDir, f), before: before.get(f) }));
+    core.info(`📦 Added ${PACKAGE}@${version} to devDependencies with ${route.tool} (${committable.join(', ')})`);
+    return { status: 'saved', files };
+}
+/** The id Git gives this content as a blob: what the GitHub API reports as a file's `sha`. */
+function gitBlobSha(content) {
+    return crypto.createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
+}
+/** Put files back as they were: for a caller that decides, after the fact, not to commit the change. */
+function restoreFiles(files) {
+    for (const file of files) {
+        try {
+            fs.writeFileSync(file.path, file.before);
+        }
+        catch {
+            // Best effort: nothing else depends on it.
+        }
+    }
+}
+
+
+/***/ }),
+
 /***/ 6290:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -34792,11 +35063,13 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.commitTests = commitTests;
+exports.unchangedOnDefaultBranch = unchangedOnDefaultBranch;
 exports.createBootstrapPR = createBootstrapPR;
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
+const dev_dependency_1 = __nccwpck_require__(5679);
 async function commitTests(token, prContext, testFiles, workDir) {
     if (testFiles.length === 0) {
         core.info('No test files to commit');
@@ -34864,6 +35137,37 @@ async function commitTests(token, prContext, testFiles, workDir) {
     });
     core.info(`Committed ${committedFiles.length} test file(s) to ${prContext.branch}`);
     return committedFiles;
+}
+/**
+ * True when each file, as it was in the checkout before GreenCI changed it,
+ * is byte-for-byte what the default branch holds now. The bootstrap PR is
+ * built on the default branch and uploads whole files, so committing a file
+ * that already existed is only safe under this condition. Otherwise the PR
+ * would also carry whatever else differs: a checkout of another branch, a
+ * dependency bump merged while the run was going, an earlier workflow step
+ * that edited the file, line endings changed by the checkout, or a file that
+ * is not tracked at all.
+ */
+async function unchangedOnDefaultBranch(token, owner, repo, workDir, files) {
+    const octokit = github.getOctokit(token);
+    try {
+        const { data: repoInfo } = await octokit.rest.repos.get({ owner, repo });
+        for (const file of files) {
+            const { data } = await octokit.rest.repos.getContent({
+                owner,
+                repo,
+                path: path.relative(workDir, file.path).split(path.sep).join('/'),
+                ref: repoInfo.default_branch,
+            });
+            if (Array.isArray(data) || data.type !== 'file' || data.sha !== (0, dev_dependency_1.gitBlobSha)(file.before))
+                return false;
+        }
+        return true;
+    }
+    catch {
+        // Not on the default branch (404), or the API could not say: not proven.
+        return false;
+    }
 }
 /**
  * Bootstrap mode runs from workflow_dispatch with no PR context: commit the
