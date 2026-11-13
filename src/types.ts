@@ -101,6 +101,8 @@ export interface TestResult {
   stdout?: string;
   /** Accessibility tree of the page the failing spec had reached (see readPageSnapshot). */
   pageSnapshot?: string;
+  /** Set when the failure is that nothing answered at this origin (see unreachable.ts). `error` already says so. */
+  unreachable?: string;
 }
 
 export interface SelfHealRequest {

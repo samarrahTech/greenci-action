@@ -328,7 +328,7 @@ describe('healFailedTests — auth classification uses the credentials', () => {
 // page.goto with ERR_CONNECTION_REFUSED, and two heal calls per spec were
 // spent rewriting a test that had nothing wrong with it.
 describe('app unreachable', () => {
-  const { unreachableOrigin } = jest.requireActual('../src/self-healer');
+  const { unreachableOrigin, unreachableResult } = jest.requireActual('../src/unreachable');
   const refused =
     'Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/changelog\nCall log:\n  - navigating to "http://localhost:3000/changelog"';
   const test: GeneratedTest = {
@@ -354,6 +354,29 @@ describe('app unreachable', () => {
     expect(outcome.results[0].error).toContain('Nothing answered at http://localhost:3000,');
     expect(outcome.results[0].error).not.toContain('9999');
     expect(outcome.results[0].error).toContain('ERR_CONNECTION_REFUSED');
+  });
+
+  it('passes through a result the sign-in setup already marked, without a second message', async () => {
+    const healTest = jest.fn();
+    const marked = unreachableResult(failed(refused), 'http://localhost:3000');
+
+    const outcome = await healFailedTests([{ test, result: marked }], mockContext, mockConfig, { healTest } as unknown as ILLMClient, '/work');
+
+    expect(healTest).not.toHaveBeenCalled();
+    expect(outcome.results[0]).toBe(marked);
+    expect(outcome.results[0].error!.match(/Nothing answered at/g)).toHaveLength(1);
+    expect(outcome.authBlocked).toHaveLength(0);
+  });
+
+  // GC-120: with max-retries 0 the healer is still what hands a failure back.
+  it('returns the failed result untouched, with no heal call, when max-retries is 0', async () => {
+    const healTest = jest.fn();
+    const result = failed('Error: expect(locator).toBeVisible() failed');
+
+    const outcome = await healFailedTests([{ test, result }], mockContext, { ...mockConfig, maxRetries: 0 }, { healTest } as unknown as ILLMClient, '/work');
+
+    expect(healTest).not.toHaveBeenCalled();
+    expect(outcome.results).toEqual([result]);
   });
 
   it('stops healing when the app goes away on a rerun', async () => {

@@ -7,6 +7,7 @@ import { resolveTestPath, assertSafeToWrite, isInsideRoot, ALLOWED_SUFFIX } from
 import type { RenamedTest } from './existing-tests';
 import { buildTestEnv } from './test-env';
 import { AUTH_SETUP_FILENAME, STORAGE_STATE_PATH, hasTestCredentials } from './auth-scaffold';
+import { unreachableResult, unreachableThroughout } from './unreachable';
 
 /**
  * Zero-test repos (the bootstrap audience) usually have neither
@@ -362,11 +363,33 @@ export async function runPlaywrightFile(
   return { exitCode, stdout, stderr };
 }
 
-export type AuthSessionStatus = 'ok' | 'skipped' | 'not-wired' | 'failed' | 'no-session-file';
+export type AuthSessionStatus = 'ok' | 'skipped' | 'not-wired' | 'failed' | 'no-session-file' | 'unreachable';
 export interface AuthSessionResult {
   status: AuthSessionStatus;
-  /** Playwright output, for the failed / not-wired / no-session-file cases. */
+  /** Playwright output, for the failed / not-wired / no-session-file / unreachable cases. */
   output?: string;
+  /** For 'unreachable': the address nothing answered at. */
+  origin?: string;
+}
+
+function readSetupSource(workDir: string, config: ActionConfig): string {
+  try {
+    return fs.readFileSync(path.join(workDir, config.testDir, AUTH_SETUP_FILENAME), 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The sign-in setup found nothing answering at the app's address. Running
+ * the specs would only repeat that once per file, and the authenticated ones
+ * would fail on a missing session and be reported as a credentials problem.
+ * Give every test the one true reason instead, without running it.
+ */
+export function appDownResults(tests: GeneratedTest[], auth: AuthSessionResult): TestResult[] {
+  return tests.map((t) =>
+    unreachableResult({ filename: t.filename, passed: false, duration: 0, error: (auth.output ?? '').substring(0, 1200) }, auth.origin ?? ''),
+  );
 }
 
 /**
@@ -402,6 +425,17 @@ export async function ensureAuthSession(
         `⚠️ No Playwright project in this repo's config runs ${AUTH_SETUP_FILENAME} — authenticated specs cannot get a session (see PR instructions)`,
       );
       return { status: 'not-wired', output };
+    }
+    // A dead app fails the sign-in first, and every authenticated spec after
+    // it for want of a session. Reported as a sign-in problem, that sent
+    // people to check credentials that were fine. The setup file's own source
+    // goes in so an address it spells out itself (an identity provider, a
+    // hard-coded port) is not blamed on base-url.
+    const down = unreachableThroughout(output, readSetupSource(workDir, config));
+    if (down) {
+      core.warning(`🔌 The login setup could not reach the app: nothing answered at ${down}. No spec is run`);
+      core.info(`   Setup output:\n${output.substring(0, 800)}`);
+      return { status: 'unreachable', origin: down, output };
     }
     core.warning(`❌ The login setup (${AUTH_SETUP_FILENAME}) could not sign in — authenticated specs will be reported as blocked`);
     core.info(`   Setup output:\n${output.substring(0, 800)}`);

@@ -10,6 +10,7 @@ jest.mock('../src/test-runner', () => ({
   ensurePlaywright: jest.fn().mockResolvedValue(false),
   ensurePlaywrightConfig: jest.fn().mockReturnValue(null),
   ensureAuthSession: jest.fn().mockResolvedValue({ status: 'ok' }),
+  appDownResults: jest.fn(),
 }));
 
 jest.mock('../src/self-healer', () => ({
@@ -83,6 +84,41 @@ describe('generateAndRunTests', () => {
     expect(report.testsGenerated).toBe(1);
     expect(report.testsPassed).toBe(1);
     expect(report.testsFailed).toBe(0);
+  });
+
+  // GC-120: with max-retries: 0 the healer was skipped altogether, and it is
+  // the healer that hands failed results back. A run with a failing test
+  // reported 0 failed.
+  it('still counts and classifies failures when max-retries is 0', async () => {
+    const { runTests } = jest.requireMock('../src/test-runner');
+    const { healFailedTests } = jest.requireMock('../src/self-healer');
+    const failed = { filename: mockTest.filename, passed: false, duration: 5, error: 'boom' };
+    runTests.mockResolvedValueOnce([failed]);
+    healFailedTests.mockResolvedValueOnce({ healed: [], results: [failed], suspectedBugs: [], authBlocked: [] });
+
+    const report = await generateAndRunTests(mockContext, { ...mockConfig, maxRetries: 0 }, mockLLMClient, '/tmp');
+
+    expect(healFailedTests).toHaveBeenCalled();
+    expect(report.testsFailed).toBe(1);
+    expect(report.testsPassed).toBe(0);
+  });
+
+  // GC-119: sign-in found the app down. No spec runs; each test carries the reason.
+  it('runs no spec when the sign-in setup found the app unreachable', async () => {
+    const { runTests, ensureAuthSession, appDownResults } = jest.requireMock('../src/test-runner');
+    const { healFailedTests } = jest.requireMock('../src/self-healer');
+    const authed = { ...mockTest, code: "test.use({ storageState: 'playwright/.auth/user.json' });" };
+    const down = { filename: authed.filename, passed: false, duration: 0, error: 'Nothing answered at http://localhost:3000', unreachable: 'http://localhost:3000' };
+    (mockLLMClient.generateTests as jest.Mock).mockResolvedValueOnce({ tests: [authed] });
+    ensureAuthSession.mockResolvedValueOnce({ status: 'unreachable', origin: 'http://localhost:3000', output: 'x' });
+    appDownResults.mockReturnValueOnce([down]);
+    healFailedTests.mockResolvedValueOnce({ healed: [], results: [down], suspectedBugs: [], authBlocked: [] });
+    runTests.mockClear();
+
+    const report = await generateAndRunTests(mockContext, mockConfig, mockLLMClient, '/tmp');
+
+    expect(runTests).not.toHaveBeenCalled();
+    expect(report.testsFailed).toBe(1);
   });
 
   // GC-089: PR runs renew the session like bootstrap does, heal reruns included.

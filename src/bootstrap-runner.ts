@@ -4,7 +4,7 @@ import { ActionConfig, GeneratedTest, ILLMClient, SuspectedBug, TestResult } fro
 import { parseJourneys, fetchPages } from './bootstrap-context';
 import { needsAuthScaffold, writeAuthScaffold, loginPathFromJourneys, AUTH_SETUP_FILENAME, type AuthFailureKind } from './auth-scaffold';
 import { readExistingTests, formatExistingTestsForAPI, type RenamedTest } from './existing-tests';
-import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, type SessionRenewal, writeTests, detectDevServer, playwrightConfigSource, type AuthSessionResult, type AuthSessionStatus, type ProtectExisting } from './test-runner';
+import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, appDownResults, type SessionRenewal, writeTests, detectDevServer, playwrightConfigSource, type AuthSessionResult, type AuthSessionStatus, type ProtectExisting } from './test-runner';
 import { healFailedTests } from './self-healer';
 import { createBootstrapPR } from './git-ops';
 import { resolveTestPath } from './safe-paths';
@@ -115,7 +115,8 @@ export async function runBootstrap(
   const session: SessionRenewal | undefined = authSession?.status === 'ok' ? { rotates: false, stopped: false } : undefined;
 
   core.info('🏃 Running the bootstrap suite...');
-  const initialResults = await runTests(generatedTests, config, workDir, session);
+  const initialResults =
+    authSession?.status === 'unreachable' ? appDownResults(generatedTests, authSession) : await runTests(generatedTests, config, workDir, session);
 
   const failedTests = initialResults
     .map((result, i) => ({ test: generatedTests[i], result }))
