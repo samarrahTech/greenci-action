@@ -284,7 +284,7 @@ GreenCI posts a detailed summary comment on your PR:
 
 ## Data Sent to the GreenCI API
 
-**BYO-LLM mode (`llm-provider: anthropic` or `openai`):** nothing is sent to the GreenCI API — the payloads below go directly from your runner to your chosen LLM provider under your own key. (Exception: if you set `project-id` with a GreenCI API key, traces are still uploaded to the GreenCI dashboard.)
+**BYO-LLM mode (`llm-provider: anthropic` or `openai`):** the payloads below go directly from your runner to your chosen LLM provider under your own key; the action does not send them to the GreenCI API. If you also set `api-key` (for the dashboard), the action posts run results to the GreenCI API. Those include test filenames and verdict reasoning, which can quote your test code or page text (see "What the API keeps" below). With `project-id` set as well, it also uploads Playwright traces.
 
 **Hosted mode (`llm-provider: greenci`, the default):** to generate and heal tests, the action sends the following to the GreenCI API (`greenci-api-url`, default `https://api.greenci.ai`):
 
@@ -296,7 +296,19 @@ GreenCI posts a detailed summary comment on your PR:
 - On migrate: your Cypress test source
 - If `project-id` is set: Playwright trace archives for the dashboard (these hold DOM snapshots and screenshots of failing pages, whatever `page-snapshot` is set to)
 
-This data is processed transiently to generate tests and is not used to train models. If your repository cannot share code with an external API, do not use the hosted service.
+The GreenCI API forwards these to its LLM provider, a third party with its own data terms, to write or fix tests.
+
+### What the API keeps
+
+The GreenCI API uses the payloads above to generate or fix tests and does not write them to its database or storage. It does keep:
+
+- **Run results**, for each run that generated at least one test (hosted runs, and BYO-LLM runs with `api-key` set): repository, branch, commit, PR number, test counts, run duration, self-heal and suspected-bug counts, and up to 50 verdicts, each with the test's filename, its classification and up to 4,096 characters of the model's reasoning.
+- **Heal records** (hosted mode): the failing test's filename, the first 500 characters of its error, and the verdict with up to 500 characters of reasoning. Later heals made with the same API key read them, so the model can see earlier attempts.
+- **Trace archives** (when `project-id` is set): each archive's expiry is fixed at upload from your plan at that time (30, 60, 90 or 365 days), and a daily job deletes expired archives.
+
+Run results and heal records do not expire. You can delete a run result from the dashboard; otherwise both are kept until you delete your account, which deletes them, including records made with API keys you have revoked. Verdict reasoning can quote your test code or text from the page under test. GreenCI does not train models on your code.
+
+If your code may not leave your own infrastructure, GreenCI is not a fit: hosted mode sends it to the GreenCI API and its LLM provider, and BYO-LLM mode sends it to the LLM provider you choose.
 
 ## License
 
