@@ -35132,7 +35132,7 @@ async function run() {
         if (config.apiKey && projectId) {
             const runIdStr = process.env.GITHUB_RUN_ID || 'unknown';
             const testResultsDir = path.join(workDir, 'test-results');
-            await (0, trace_uploader_1.uploadTraces)(testResultsDir, config.greenCIApiUrl, config.apiKey, projectId, runIdStr);
+            await (0, trace_uploader_1.uploadTraces)(testResultsDir, config.greenCIApiUrl, config.apiKey, projectId, runIdStr, config.sendPageSnapshot);
         }
         // 8. Set outputs
         core.setOutput('tests-generated', String(report.testsGenerated));
@@ -36573,28 +36573,80 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.clipEnd = clipEnd;
+exports.clipStart = clipStart;
+exports.buildVerdicts = buildVerdicts;
 exports.uploadResults = uploadResults;
 const core = __importStar(__nccwpck_require__(7484));
+// Same limits, order and clipping as the API (greenci-api src/types.ts:
+// MAX_STORED_VERDICTS, clipStart, clipEnd, keepStoredVerdicts). The API clips
+// too, but only after it has accepted the body: a run with many long verdicts
+// went over the 2 MB request limit and was dropped whole with a 413, so the
+// dashboard showed nothing for the runs with the most to say. If the API
+// raises a limit, raise it here.
+const MAX_VERDICTS = 50;
+const MAX_REASONING = 4096;
+const MAX_FILENAME = 512;
+const MAX_CLASSIFICATION = 64;
+/** The heal verdict is not validated where it is parsed, so any field may be missing or not a string. */
+function text(value) {
+    if (typeof value === 'string')
+        return value;
+    if (value === null || value === undefined)
+        return '';
+    if (Array.isArray(value))
+        return value.map(text).join(' ');
+    return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+const isHighSurrogate = (unit) => unit >= 0xd800 && unit <= 0xdbff;
+const isLowSurrogate = (unit) => unit >= 0xdc00 && unit <= 0xdfff;
+/** Keep the start, mark the cut, never leave half of a character pair. */
+function clipEnd(s, max) {
+    if (s.length <= max)
+        return s;
+    let end = max - 1;
+    if (isHighSurrogate(s.charCodeAt(end - 1)))
+        end--;
+    return `${s.slice(0, end)}…`;
+}
+/** Keep the end (a spec's name is at the end of its path), mark the cut. */
+function clipStart(s, max) {
+    if (s.length <= max)
+        return s;
+    let start = s.length - (max - 1);
+    if (isLowSurrogate(s.charCodeAt(start)))
+        start++;
+    return `…${s.slice(start)}`;
+}
+/**
+ * The verdicts to store, within the API's limits. Suspected app bugs go
+ * first, so they are the ones kept when there are more than fit.
+ */
+function buildVerdicts(report) {
+    const clip = (v) => ({
+        filename: clipStart(text(v.filename), MAX_FILENAME),
+        // The API rejects the whole report on a classification over its limit; it does not clip this field.
+        classification: text(v.classification).slice(0, MAX_CLASSIFICATION) || 'unknown',
+        reasoning: clipEnd(text(v.reasoning), MAX_REASONING),
+    });
+    const all = [
+        ...(report.suspectedBugs ?? []).map((b) => clip({ filename: b.filename, classification: 'app-bug-suspected', reasoning: b.reasoning })),
+        ...(report.healedTests ?? [])
+            .filter((t) => t.verdict)
+            .map((t) => clip({ filename: t.filename, classification: t.verdict.classification, reasoning: t.verdict.reasoning })),
+    ];
+    if (all.length > MAX_VERDICTS) {
+        core.info(`📊 ${all.length} verdicts this run; the dashboard keeps ${MAX_VERDICTS} (suspected app bugs first). The PR report lists all of them.`);
+    }
+    return all.slice(0, MAX_VERDICTS);
+}
 /**
  * Post the run summary to the GreenCI API so the dashboard's "Recent runs"
  * view (pass/fail counts, self-heals, suspected app bugs) has data.
  * Non-fatal: a dashboard hiccup must never fail the user's CI.
  */
 async function uploadResults(apiUrl, apiKey, prContext, report) {
-    const verdicts = [
-        ...(report.healedTests ?? [])
-            .filter((t) => t.verdict)
-            .map((t) => ({
-            filename: t.filename,
-            classification: t.verdict.classification,
-            reasoning: t.verdict.reasoning,
-        })),
-        ...(report.suspectedBugs ?? []).map((b) => ({
-            filename: b.filename,
-            classification: 'app-bug-suspected',
-            reasoning: b.reasoning,
-        })),
-    ];
+    const verdicts = buildVerdicts(report);
     try {
         const res = await fetch(`${apiUrl}/v1/results`, {
             method: 'POST',
@@ -38164,11 +38216,21 @@ function findZipFiles(dir) {
     }
     return results;
 }
-async function uploadTraces(testResultsDir, apiUrl, apiKey, projectId, runId) {
+async function uploadTraces(testResultsDir, apiUrl, apiKey, projectId, runId, 
+/** The run's page-snapshot setting; false adds the notice below. */
+sendPageSnapshot = true) {
     const traceFiles = findZipFiles(testResultsDir);
     if (traceFiles.length === 0) {
         core.info('📦 No trace files found to upload.');
         return;
+    }
+    // page-snapshot: false stops the page going out with heal requests. A trace
+    // archive holds the same page and more, so when one is about to be sent,
+    // say so, rather than leave the opt-out looking wider than it is. Only
+    // here, where there is a trace to send: a green run uploads nothing.
+    if (!sendPageSnapshot) {
+        core.warning(`page-snapshot is false, but project-id is set: ${traceFiles.length} Playwright trace archive(s) are still uploaded, ` +
+            'and they contain DOM snapshots and screenshots of failing pages. Remove project-id to keep page content on the runner.');
     }
     core.info(`📦 Uploading ${traceFiles.length} trace file(s) to GreenCI dashboard...`);
     for (const filePath of traceFiles) {

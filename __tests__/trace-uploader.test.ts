@@ -90,4 +90,31 @@ describe('uploadTraces', () => {
     await uploadTraces('/results', 'https://api.greenci.ai', 'mock-key', 'proj-1', 'run-1');
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Trace upload error'));
   });
+
+  // GC-099: page-snapshot: false keeps the page out of heal requests, but a
+  // trace archive carries the same page.
+  it('warns that traces still carry the page when page-snapshot is off and a trace is sent', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReaddirSync.mockReturnValue([{ name: 'trace.zip', isDirectory: () => false }]);
+    mockReadFileSync.mockReturnValue(Buffer.from('fake-zip-data'));
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+
+    await uploadTraces('/results', 'https://api.greenci.ai', 'mock-key', 'proj-1', 'run-1', false);
+
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('1 Playwright trace archive(s) are still uploaded'));
+    expect(global.fetch).toHaveBeenCalled();
+  });
+
+  it('does not warn on a run with no trace to send, or with page snapshots on', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReaddirSync.mockReturnValue([]);
+    await uploadTraces('/results', 'https://api.greenci.ai', 'mock-key', 'proj-1', 'run-1', false);
+
+    mockReaddirSync.mockReturnValue([{ name: 'trace.zip', isDirectory: () => false }]);
+    mockReadFileSync.mockReturnValue(Buffer.from('fake-zip-data'));
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+    await uploadTraces('/results', 'https://api.greenci.ai', 'mock-key', 'proj-1', 'run-1', true);
+
+    expect(core.warning).not.toHaveBeenCalledWith(expect.stringContaining('still uploaded'));
+  });
 });
