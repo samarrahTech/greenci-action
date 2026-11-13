@@ -8,3 +8,7 @@ coverage/
 
 # dist/ declaration source maps embed absolute paths and are not deterministic across environments
 dist/**/*.d.ts.map
+
+# Azure DevOps task build output (built in CI, published from the pipeline, not committed)
+azure-devops/out/
+azure-devops/dist/

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "greenci-task",
   "name": "GreenCI - AI E2E Test Agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "GreenCI",
   "description": "AI-powered E2E test generation and self-healing for Azure DevOps pipelines",
   "categories": ["Azure Pipelines"],

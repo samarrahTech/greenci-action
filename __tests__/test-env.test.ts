@@ -71,3 +71,25 @@ describe('buildTestEnv', () => {
     expect(isSensitiveEnvName('TEST_USER_PASSWORD')).toBe(false);
   });
 });
+
+// GC-133: the Azure DevOps task ran generated tests with the whole pipeline
+// environment, job token included.
+describe('Azure DevOps credentials', () => {
+  it('strips the job token, the CLI PAT and task inputs', () => {
+    const env = buildTestEnv({
+      SYSTEM_ACCESSTOKEN: 'job-token',
+      AZURE_DEVOPS_EXT_PAT: 'pat',
+      INPUT_APIKEY: 'gci_key',
+      BUILD_SOURCESDIRECTORY: '/work',
+      TEST_USER_EMAIL: 'qa@example.com',
+      PATH: '/usr/bin',
+    });
+    expect(env).toEqual({ BUILD_SOURCESDIRECTORY: '/work', TEST_USER_EMAIL: 'qa@example.com', PATH: '/usr/bin' });
+  });
+
+  // Rails and Django apps need these to boot under Playwright's webServer.
+  it('keeps variables the repo owner named SECRET_*', () => {
+    const env = buildTestEnv({ SECRET_KEY_BASE: 'rails', SECRET_KEY: 'django' });
+    expect(env).toEqual({ SECRET_KEY_BASE: 'rails', SECRET_KEY: 'django' });
+  });
+});

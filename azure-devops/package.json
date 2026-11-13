@@ -1,10 +1,10 @@
 {
   "name": "greenci-azdo-task",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "GreenCI Azure DevOps Pipeline Task",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc && ncc build out/index.js -o dist --source-map",
+    "build": "tsc && ncc build out/azure-devops/index.js -o dist --source-map",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

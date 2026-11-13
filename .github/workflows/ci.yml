@@ -9,6 +9,31 @@ jobs:
   ci:
     uses: samarrahTech/samarratech-workflows/.github/workflows/node-ci.yml@v1
 
+  # The Azure DevOps task is a separate package that imports from ../src.
+  # Nothing compiled it in CI, so it could stop building without anyone
+  # knowing. Typecheck and bundle it on every change.
+  azure-devops:
+    name: Azure DevOps task builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck and bundle the task
+        working-directory: azure-devops
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+          # task.json runs dist/index.js: fail if the bundle did not land there.
+          test -s dist/index.js
+
   dist:
     name: Check dist is up to date
     runs-on: ubuntu-latest
