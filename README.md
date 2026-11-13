@@ -90,6 +90,7 @@ jobs:
 | `base-url` | App base URL for E2E tests. When you set it, it replaces `baseURL` from your own `playwright.config` for the run (for example, to test a preview deployment); leave it unset to keep your config's value | ❌ | `http://localhost:3000` |
 | `max-retries` | Max self-healing retries | ❌ | `2` |
 | `auto-commit` | Auto-commit passing tests to PR. `true` or `false`, any casing. An empty or unreadable value (for example an undefined `vars.X`) means no commit, with a warning | ❌ | `true` |
+| `fail-on-test-failure` | Fail the check when generated tests still fail after self-healing (PR runs). `false` reports the failures in the PR comment and keeps the check green | ❌ | `true` |
 | `page-snapshot` | Send Playwright's accessibility snapshot of the failing page with self-heal requests; `false` leaves the snapshot out (the error output, which can quote page text, is still sent; trace uploads are controlled by `project-id`) | ❌ | `true` |
 | `greenci-api-url` | GreenCI API endpoint | ❌ | `https://api.greenci.ai` |
 | `mode` | Operation mode (`generate`, `bootstrap`, or `migrate`) | ❌ | `generate` |

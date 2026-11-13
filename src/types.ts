@@ -12,6 +12,8 @@ export interface ActionConfig {
   /** The workflow set `base-url` itself (not the default): it overrides a repo config's baseURL. */
   baseUrlExplicit?: boolean;
   maxRetries: number;
+  /** Failed generated tests fail the check (default). False: report only. */
+  failOnTestFailure?: boolean;
   autoCommit: boolean;
   sendPageSnapshot: boolean;
   greenCIApiUrl: string;

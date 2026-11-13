@@ -63,6 +63,7 @@ export function getConfig(): ActionConfig {
     // The heal API caps attempt at 5; clamp so extra retries don't 400
     maxRetries: Math.min(Math.max(parseInt(core.getInput('max-retries') || '2', 10) || 0, 0), 5),
     autoCommit: booleanInput('auto-commit', false, 'not committing tests to the PR branch'),
+    failOnTestFailure: booleanInput('fail-on-test-failure', true, 'failed tests fail the check'),
     sendPageSnapshot: booleanInput('page-snapshot', false, 'not sending page snapshots'),
     greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
     mode,
