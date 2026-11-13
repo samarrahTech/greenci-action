@@ -156,7 +156,7 @@ async function run(): Promise<void> {
     if (config.apiKey && projectId) {
       const runIdStr = process.env.GITHUB_RUN_ID || 'unknown';
       const testResultsDir = path.join(workDir, 'test-results');
-      await uploadTraces(testResultsDir, config.greenCIApiUrl, config.apiKey, projectId, runIdStr);
+      await uploadTraces(testResultsDir, config.greenCIApiUrl, config.apiKey, projectId, runIdStr, config.sendPageSnapshot);
     }
 
     // 8. Set outputs

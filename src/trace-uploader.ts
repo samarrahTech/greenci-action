@@ -20,12 +20,25 @@ export async function uploadTraces(
   apiUrl: string,
   apiKey: string,
   projectId: string,
-  runId: string
+  runId: string,
+  /** The run's page-snapshot setting; false adds the notice below. */
+  sendPageSnapshot = true,
 ): Promise<void> {
   const traceFiles = findZipFiles(testResultsDir);
   if (traceFiles.length === 0) {
     core.info('📦 No trace files found to upload.');
     return;
+  }
+
+  // page-snapshot: false stops the page going out with heal requests. A trace
+  // archive holds the same page and more, so when one is about to be sent,
+  // say so, rather than leave the opt-out looking wider than it is. Only
+  // here, where there is a trace to send: a green run uploads nothing.
+  if (!sendPageSnapshot) {
+    core.warning(
+      `page-snapshot is false, but project-id is set: ${traceFiles.length} Playwright trace archive(s) are still uploaded, ` +
+        'and they contain DOM snapshots and screenshots of failing pages. Remove project-id to keep page content on the runner.',
+    );
   }
 
   core.info(`📦 Uploading ${traceFiles.length} trace file(s) to GreenCI dashboard...`);
