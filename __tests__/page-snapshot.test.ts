@@ -203,3 +203,120 @@ describe('readPageSnapshot (GC-092)', () => {
     expect(snap.split('\n').slice(0, -1).every((l) => /^- listitem "row \d+"$/.test(l))).toBe(true);
   });
 });
+
+describe('readPageSnapshot: project and navigation (GC-097, GC-098)', () => {
+  let workDir: string;
+  const context = (name: string, heading: string, source: string) =>
+    `# Test info\n\n- Name: ${name}\n- Location: e2e/expenses.spec.ts:5:7\n\n# Page snapshot\n\n\`\`\`yaml\n- heading "${heading}" [level=1]\n\`\`\`\n\n# Test source\n\n\`\`\`ts\n${source}\n\`\`\`\n`;
+  const write = (rel: string, body: string) => {
+    const file = path.join(workDir, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, body);
+  };
+  const SOURCE = [
+    "  5 |   await page.goto('/businesses/b1/expenses');",
+    "  6 |   await page.goto('/businesses/b1/expenses/new');",
+    "> 7 |   await expect(page.getByRole('heading')).toHaveText('New expense');",
+    '    |                                           ^ Error: expect failed',
+    "  8 |   await page.goto('/never-reached');",
+  ].join('\n');
+
+  beforeEach(() => {
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gc097-'));
+  });
+  afterEach(() => fs.rmSync(workDir, { recursive: true, force: true }));
+
+  it('keeps the page from every project when the same test fails in several', () => {
+    write('test-results/expenses-adds-chromium/error-context.md', context('expenses.spec.ts >> adds', 'Chromium page', SOURCE));
+    write('test-results/expenses-adds-firefox/error-context.md', context('expenses.spec.ts >> adds', 'Firefox page', SOURCE));
+    const output =
+      'Error Context: test-results/expenses-adds-chromium/error-context.md\nError Context: test-results/expenses-adds-firefox/error-context.md';
+
+    const snapshot = readPageSnapshot(output, workDir)!;
+
+    expect(snapshot).toContain('Chromium page');
+    expect(snapshot).toContain('Firefox page');
+    expect(snapshot).toContain('# expenses.spec.ts >> adds (expenses-adds-chromium)');
+    expect(snapshot).toContain('# expenses.spec.ts >> adds (expenses-adds-firefox)');
+  });
+
+  it('still lets a retry replace the earlier attempt of the same test in the same project', () => {
+    write('test-results/expenses-adds-chromium/error-context.md', context('expenses.spec.ts >> adds', 'First attempt', SOURCE));
+    write('test-results/expenses-adds-chromium-retry1/error-context.md', context('expenses.spec.ts >> adds', 'Retry', SOURCE));
+    const output =
+      'Error Context: test-results/expenses-adds-chromium/error-context.md\nError Context: test-results/expenses-adds-chromium-retry1/error-context.md';
+
+    const snapshot = readPageSnapshot(output, workDir)!;
+
+    expect(snapshot).toContain('Retry');
+    expect(snapshot).not.toContain('First attempt');
+  });
+
+  it('says which page the test last went to before the failing line', () => {
+    write('test-results/expenses-adds-chromium/error-context.md', context('expenses.spec.ts >> adds', 'Not found', SOURCE));
+
+    const snapshot = readPageSnapshot('Error Context: test-results/expenses-adds-chromium/error-context.md', workDir)!;
+
+    expect(snapshot).toContain('Last page.goto in the test before the failing line: /businesses/b1/expenses/new');
+    expect(snapshot).not.toContain('/never-reached');
+    expect(snapshot).toContain('heading "Not found"');
+  });
+
+  it('sends one block when every project shows the same page', () => {
+    write('test-results/expenses-adds-chromium/error-context.md', context('expenses.spec.ts >> adds', 'Same page', SOURCE));
+    write('test-results/expenses-adds-firefox/error-context.md', context('expenses.spec.ts >> adds', 'Same page', SOURCE));
+    const output =
+      'Error Context: test-results/expenses-adds-chromium/error-context.md\nError Context: test-results/expenses-adds-firefox/error-context.md';
+
+    const snapshot = readPageSnapshot(output, workDir)!;
+
+    expect(snapshot.match(/Same page/g)).toHaveLength(1);
+    expect(snapshot).not.toContain('# expenses.spec.ts');
+  });
+
+  it('keeps the project on the header when the test name is very long', () => {
+    const long = `expenses.spec.ts >> ${'x'.repeat(300)}`;
+    write('test-results/e-chromium/error-context.md', context(long, 'Chromium page', SOURCE));
+    write('test-results/e-firefox/error-context.md', context(long, 'Firefox page', SOURCE));
+
+    const snapshot = readPageSnapshot('Error Context: test-results/e-chromium/error-context.md\nError Context: test-results/e-firefox/error-context.md', workDir)!;
+
+    expect(snapshot).toContain('(e-chromium)');
+    expect(snapshot).toContain('(e-firefox)');
+  });
+
+  it('keeps the navigation line when the page is too large to send whole', () => {
+    const big = Array.from({ length: 4000 }, (_, i) => `- text "row ${i}"`).join('\n');
+    write(
+      'test-results/big-chromium/error-context.md',
+      `# Test info\n\n- Name: big.spec.ts >> t\n\n# Page snapshot\n\n\`\`\`yaml\n- main:\n${big}\n\`\`\`\n\n# Test source\n\n\`\`\`ts\n${SOURCE}\n\`\`\`\n`,
+    );
+
+    const snapshot = readPageSnapshot('Error Context: test-results/big-chromium/error-context.md', workDir)!;
+
+    expect(snapshot.length).toBeLessThanOrEqual(8000);
+    expect(snapshot).toContain('Last page.goto in the test before the failing line: /businesses/b1/expenses/new (the app may have redirected since)');
+  });
+
+  it.each([
+    [
+      'a goto from an earlier test in the file',
+      ["  2 | test('first', async ({ page }) => {", "  3 |   await page.goto('/first');", '  4 | });', "  5 | test('second', async ({ page }) => {", "> 6 |   await expect(page.locator('h1')).toBeVisible();"],
+    ],
+    ['the failing line itself', ["  2 | test('t', async ({ page }) => {", "> 3 |   await page.goto('/reports');"]],
+    ['a commented-out goto', ["  2 | test('t', async ({ page }) => {", "  3 |   // await page.goto('/old');", "> 4 |   await expect(page.locator('h1')).toBeVisible();"]],
+    ['a target built by concatenation', ["  2 | test('t', async ({ page }) => {", "  3 |   await page.goto('/businesses/' + id + '/new');", "> 4 |   await expect(page.locator('h1')).toBeVisible();"]],
+    ['a template with a placeholder', ["  2 | test('t', async ({ page }) => {", '  3 |   await page.goto(`/businesses/${id}/new`);', "> 4 |   await expect(page.locator('h1')).toBeVisible();"]],
+  ])('gives no navigation line for %s', (_name, source) => {
+    write('test-results/n-chromium/error-context.md', context('n.spec.ts >> t', 'Home', source.join('\n')));
+    expect(readPageSnapshot('Error Context: test-results/n-chromium/error-context.md', workDir)).toBe('- heading "Home" [level=1]');
+  });
+
+  it('adds no navigation line when the source shows none before the failure', () => {
+    write(
+      'test-results/x-chromium/error-context.md',
+      context('x.spec.ts >> t', 'Home', "> 3 |   await expect(page.locator('h1')).toBeVisible();"),
+    );
+    expect(readPageSnapshot('Error Context: test-results/x-chromium/error-context.md', workDir)).toBe('- heading "Home" [level=1]');
+  });
+});
