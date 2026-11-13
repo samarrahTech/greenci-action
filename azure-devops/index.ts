@@ -9,12 +9,19 @@ import * as tl from 'azure-pipelines-task-lib/task';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync, execFileSync } from 'child_process';
+// Shared with the GitHub action. Both modules depend only on Node built-ins,
+// so importing them does not pull in @actions/*.
+import { buildTestEnv } from '../src/test-env';
+import { fileFilter, findPlaywrightConfig, writeBaseUrlOverride, removeBaseUrlOverride } from '../src/playwright-config';
+import { resolveTestPath, assertSafeToWrite } from '../src/safe-paths';
 
 // ─── Types (mirrored from ../src/types.ts to avoid import issues with @actions deps) ───
 
 interface TaskConfig {
   apiKey: string;
   baseUrl: string;
+  /** The pipeline set baseUrl itself: it overrides baseURL in the repo's own Playwright config. */
+  baseUrlExplicit: boolean;
   testDir: string;
   mode: 'generate' | 'migrate';
   provider: string;
@@ -78,6 +85,7 @@ function getTaskConfig(): TaskConfig {
   return {
     apiKey,
     baseUrl: tl.getInput('baseUrl', false) || 'http://localhost:3000',
+    baseUrlExplicit: !!tl.getInput('baseUrl', false),
     testDir: tl.getInput('testDir', false) || 'e2e',
     mode: (tl.getInput('mode', false) || 'generate') as 'generate' | 'migrate',
     provider: tl.getInput('provider', false) || 'greenci',
@@ -453,23 +461,78 @@ test.describe('Smoke Tests', () => {
 
 // ─── Test writing & running ───
 
-function writeTests(tests: GeneratedTest[], workDir: string): void {
+/**
+ * Write the tests whose names are safe and return them, renamed to their path
+ * from the repo root. Filenames come from the model's response, so they go
+ * through the same checks as the GitHub action (src/safe-paths.ts): a spec or
+ * test file, inside the test directory after resolving, and not an existing
+ * symlink. A test that fails the check is dropped here, so it is neither run
+ * nor healed nor committed.
+ */
+function writeTests(tests: GeneratedTest[], config: TaskConfig, workDir: string): GeneratedTest[] {
+  const written: GeneratedTest[] = [];
   for (const test of tests) {
-    const filePath = path.join(workDir, test.filename);
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(filePath, test.code, 'utf-8');
-    console.log(`Wrote test: ${test.filename}`);
+    let absolute: string;
+    try {
+      absolute = resolveTestPath(workDir, config.testDir, test.filename).absolute;
+      assertSafeToWrite(path.resolve(workDir, config.testDir), absolute);
+    } catch (err) {
+      tl.warning(`Skipped ${test.filename}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    fs.writeFileSync(absolute, test.code, 'utf-8');
+    const filename = path.relative(workDir, absolute).split(path.sep).join('/');
+    console.log(`Wrote test: ${filename}`);
+    written.push({ ...test, filename });
   }
+  return written;
+}
+
+// Resolved once per run: undefined = not looked up yet.
+let overrideConfig: string | null | undefined;
+
+/**
+ * When the pipeline sets baseUrl and the repo has its own Playwright config,
+ * run with a config that wraps the repo's and replaces baseURL (see
+ * src/playwright-config.ts). Without it the config's baseURL, usually
+ * localhost, silently beat the input. Null: nothing to override, or the
+ * wrapper could not be written, in which case the repo's config is used.
+ */
+function baseUrlOverrideConfig(config: TaskConfig, workDir: string): string | null {
+  if (overrideConfig !== undefined) return overrideConfig;
+  overrideConfig = null;
+  if (!config.baseUrlExplicit) return null;
+  const configFile = findPlaywrightConfig(workDir);
+  if (!configFile) return null;
+  try {
+    overrideConfig = writeBaseUrlOverride(workDir, configFile);
+    if (overrideConfig) console.log(`baseUrl is set: tests use ${config.baseUrl} with the rest of ${configFile} unchanged`);
+  } catch (err) {
+    tl.warning(
+      `Could not apply baseUrl over ${configFile} (${err instanceof Error ? err.message : String(err)}); ` +
+        `tests run against the baseURL in ${configFile}`,
+    );
+  }
+  return overrideConfig;
 }
 
 function runPlaywrightTest(testFile: string, config: TaskConfig, workDir: string): TestResult {
   const startTime = Date.now();
   try {
-    const stdout = execFileSync('npx', ['playwright', 'test', testFile, '--reporter=json'], {
+    // Playwright reads the file argument as a regular expression: escape the
+    // path and anchor it, or `add.spec.ts` also runs `expenses-add.spec.ts`.
+    const filter = fileFilter(path.relative(workDir, testFile).split(path.sep).join('/'));
+    const args = ['playwright', 'test', filter, '--reporter=json'];
+    const override = baseUrlOverrideConfig(config, workDir);
+    if (override) args.push(`--config=${override}`);
+    const stdout = execFileSync('npx', args, {
       cwd: workDir,
       encoding: 'utf-8',
-      env: { ...process.env, BASE_URL: config.baseUrl, CI: 'true' },
+      // Model-written code runs here. It gets the pipeline environment minus
+      // every credential the task holds (job token, secret variables, service
+      // connections, the task's own inputs). Never spread process.env here.
+      env: buildTestEnv(process.env, { BASE_URL: config.baseUrl, CI: 'true' }),
       timeout: 120_000,
     });
     return {
@@ -514,8 +577,9 @@ async function healFailedTests(
         context,
         config
       );
-      writeTests([healedTest], workDir);
-      const healedResult = runPlaywrightTest(path.join(workDir, healedTest.filename), config, workDir);
+      const [placed] = writeTests([{ ...healedTest, filename: currentTest.filename }], config, workDir);
+      if (!placed) break;
+      const healedResult = runPlaywrightTest(path.join(workDir, placed.filename), config, workDir);
 
       if (healedResult.passed) {
         console.log(`✅ ${test.filename} healed on attempt ${attempt}`);
@@ -524,7 +588,7 @@ async function healFailedTests(
         wasHealed = true;
         break;
       }
-      currentTest = healedTest;
+      currentTest = placed;
       currentResult = healedResult;
     }
 
@@ -603,8 +667,10 @@ function commitPassingTests(testFiles: string[], workDir: string): string[] {
   if (testFiles.length === 0) return [];
 
   try {
+    // The filenames come from the model's response: pass them as arguments,
+    // never through a shell.
     for (const f of testFiles) {
-      execSync(`git add "${f}"`, { cwd: workDir });
+      execFileSync('git', ['add', '--', f], { cwd: workDir });
     }
     execSync('git commit -m "🤖 GreenCI: Add AI-generated E2E tests"', { cwd: workDir });
     execSync('git push', { cwd: workDir });
@@ -662,15 +728,15 @@ async function run(): Promise<void> {
     }
 
     // 4. Write and run tests
-    writeTests(generatedTests, workDir);
+    const writtenTests = writeTests(generatedTests, config, workDir);
     console.log('🏃 Running tests...');
-    const initialResults = generatedTests.map((t) =>
+    const initialResults = writtenTests.map((t) =>
       runPlaywrightTest(path.join(workDir, t.filename), config, workDir)
     );
 
     // 5. Self-heal failed tests
     const failedPairs = initialResults
-      .map((result, i) => ({ test: generatedTests[i], result }))
+      .map((result, i) => ({ test: writtenTests[i], result }))
       .filter(({ result }) => !result.passed);
 
     let healedCount = 0;
@@ -725,6 +791,9 @@ async function run(): Promise<void> {
     console.log(`🌱 GreenCI complete: ${report.testsPassed}/${report.testsGenerated} tests passing`);
   } catch (error) {
     tl.setResult(tl.TaskResult.Failed, error instanceof Error ? error.message : String(error));
+  } finally {
+    // The run-only override config must not be left for later pipeline steps.
+    removeBaseUrlOverride(process.env['BUILD_SOURCESDIRECTORY'] || process.cwd());
   }
 }
 

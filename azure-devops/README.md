@@ -76,7 +76,7 @@ steps:
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `apiKey` | ✅ | — | GreenCI API key (starts with `gci_`) |
-| `baseUrl` | | `http://localhost:3000` | App base URL for E2E tests |
+| `baseUrl` | | `http://localhost:3000` | App base URL for E2E tests. When you set it, it replaces `baseURL` from your own `playwright.config` for the run; leave it unset to keep your config's value |
 | `testDir` | | `e2e` | Directory to save generated tests |
 | `mode` | | `generate` | `generate` or `migrate` (Cypress → Playwright) |
 | `provider` | | `greenci` | LLM provider (`greenci`, `openai`, `azure-openai`, `bedrock`, `ollama`) |

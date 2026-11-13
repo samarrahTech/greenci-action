@@ -31,12 +31,21 @@ const SENSITIVE_NAMES = new Set([
   // Registry publish tokens
   'NODE_AUTH_TOKEN',
   'NPM_TOKEN',
+  // Azure DevOps: the job's OAuth token (repo push, PR comments) and the CLI's
+  // PAT. Secret variables (SECRET_*) and service-connection credentials
+  // (ENDPOINT_AUTH_*) need no entry: azure-pipelines-task-lib removes them from
+  // process.env when it loads. They are deliberately not matched by prefix
+  // here, because repos legitimately pass SECRET_KEY_BASE and the like to the
+  // app their tests start.
+  'SYSTEM_ACCESSTOKEN',
+  'AZURE_DEVOPS_EXT_PAT',
 ]);
 
 /**
  * True for env vars GitHub creates from this action's `with:` block. Every
  * action input lands here as INPUT_<NAME>, which includes INPUT_API-KEY and
- * INPUT_GITHUB-TOKEN, so the whole prefix goes.
+ * INPUT_GITHUB-TOKEN, so the whole prefix goes. Azure DevOps passes task
+ * inputs the same way (INPUT_APIKEY).
  */
 function isActionInput(name: string): boolean {
   return name.startsWith('INPUT_');

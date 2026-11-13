@@ -10,7 +10,7 @@
   "version": {
     "Major": 0,
     "Minor": 1,
-    "Patch": 0
+    "Patch": 1
   },
   "instanceNameFormat": "GreenCI $(mode)",
   "inputs": [
@@ -25,9 +25,9 @@
       "name": "baseUrl",
       "type": "string",
       "label": "Application Base URL",
-      "defaultValue": "http://localhost:3000",
+      "defaultValue": "",
       "required": false,
-      "helpMarkDown": "Base URL of the application under test"
+      "helpMarkDown": "App base URL for E2E tests (default http://localhost:3000). When set, it replaces baseURL from the repo's own Playwright config for the run."
     },
     {
       "name": "testDir",
