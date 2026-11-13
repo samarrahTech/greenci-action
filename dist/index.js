@@ -34080,18 +34080,23 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getConfig = getConfig;
 const core = __importStar(__nccwpck_require__(7484));
-// An unreadable value turns the snapshot off: a typo should err on the side
-// of sending less page content.
-function pageSnapshotInput() {
-    if (!core.getInput('page-snapshot'))
+/**
+ * Boolean action input, any YAML casing. Both failure modes take the caller's
+ * safe value instead of a default that does more: an unreadable value (a
+ * typo), and an empty one. Empty is not "unset" here: action.yml gives these
+ * inputs a default, so the runner only hands over '' when the workflow passed
+ * it, typically a `vars.X` expression with X not defined.
+ */
+function booleanInput(name, safe, whenSafe) {
+    const raw = core.getInput(name).trim().toLowerCase();
+    if (raw === 'true')
         return true;
-    try {
-        return core.getBooleanInput('page-snapshot');
-    }
-    catch {
-        core.warning("page-snapshot must be 'true' or 'false' — not sending page snapshots");
+    if (raw === 'false')
         return false;
-    }
+    core.warning(raw === ''
+        ? `${name} was passed an empty value (an undefined variable?) — ${whenSafe}`
+        : `${name} must be 'true' or 'false' — ${whenSafe}`);
+    return safe;
 }
 function getConfig() {
     const provider = core.getInput('llm-provider') || 'greenci';
@@ -34128,8 +34133,8 @@ function getConfig() {
         baseUrlExplicit: core.getInput('base-url') !== '',
         // The heal API caps attempt at 5; clamp so extra retries don't 400
         maxRetries: Math.min(Math.max(parseInt(core.getInput('max-retries') || '2', 10) || 0, 0), 5),
-        autoCommit: (core.getInput('auto-commit') || 'true') === 'true',
-        sendPageSnapshot: pageSnapshotInput(),
+        autoCommit: booleanInput('auto-commit', false, 'not committing tests to the PR branch'),
+        sendPageSnapshot: booleanInput('page-snapshot', false, 'not sending page snapshots'),
         greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
         mode,
         cypressDir: core.getInput('cypress-dir') || 'cypress/e2e',
@@ -36847,17 +36852,74 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.unreachableOrigin = unreachableOrigin;
 exports.healFailedTests = healFailedTests;
 const core = __importStar(__nccwpck_require__(7484));
 const test_runner_1 = __nccwpck_require__(7194);
 const auth_scaffold_1 = __nccwpck_require__(7972);
 const assertion_lint_1 = __nccwpck_require__(3473);
+const UNREACHABLE_CODES = 'net::ERR_(?:CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED|CONNECTION_TIMED_OUT|EMPTY_RESPONSE|NAME_NOT_RESOLVED|ADDRESS_UNREACHABLE|INTERNET_DISCONNECTED)' +
+    '|NS_ERROR_(?:CONNECTION_REFUSED|UNKNOWN_HOST|NET_RESET|NET_TIMEOUT)' +
+    '|Could not connect to (?:the )?server';
+/**
+ * The address a navigation could not reach, when that is the whole story of
+ * the failure: nothing listening, or the name does not resolve. Returns the
+ * origin (e.g. http://localhost:3000), or null when this is an ordinary
+ * failure the healer should see.
+ *
+ * Deliberately narrow, because a wrong "unreachable" verdict denies a real
+ * heal:
+ * - the network error must be the message of a page.goto itself, not a
+ *   code-frame line or a request the page made;
+ * - an assertion failure anywhere in the output means some test did reach a
+ *   page, so the file is not simply "app down";
+ * - if the spec spells that origin out itself, the address is the test's own
+ *   mistake (a hard-coded port, an invented host) and a heal can fix it.
+ */
+function unreachableOrigin(error, specCode = '') {
+    if (!error)
+        return null;
+    const goto = new RegExp(`page\\.goto: (?:${UNREACHABLE_CODES})(?: at (\\S+))?`).exec(error);
+    if (!goto)
+        return null;
+    if (/Error: expect\(/.test(error))
+        return null;
+    const url = goto[1] ?? /navigating to "([^"]+)"/.exec(error)?.[1];
+    if (!url)
+        return null;
+    let origin;
+    try {
+        origin = new URL(url).origin;
+    }
+    catch {
+        return null;
+    }
+    if (origin === 'null' || specCode.includes(origin))
+        return null;
+    return origin;
+}
+function unreachableResult(result, origin) {
+    return {
+        ...result,
+        error: `Nothing answered at ${origin}, so this is not a problem with the test. ` +
+            `Check that the app is running before GreenCI starts and that base-url (or baseURL in your Playwright config) points at it.\n\n${result.error}`,
+    };
+}
 async function healFailedTests(failedTests, context, config, llmClient, workDir, protect, session) {
     const healed = [];
     const results = [];
     const suspectedBugs = [];
     const authBlocked = [];
     for (const { test, result } of failedTests) {
+        // Nothing answered at the app's address: no edit to the test can fix
+        // that, so do not spend heal calls on it. Checked before the auth
+        // classifier, which would otherwise read a dead app as a sign-in problem.
+        const down = unreachableOrigin(result.error, test.code);
+        if (down) {
+            core.warning(`🔌 ${test.filename}: nothing answered at ${down} — skipping heal`);
+            results.push(unreachableResult(result, down));
+            continue;
+        }
         // Auth walls are not selector bugs: a heal cannot conjure a session, so
         // don't spend LLM calls on them — route to the credentials instructions.
         const authKind = (0, auth_scaffold_1.classifyAuthFailure)(result.error, { hasCredentials: (0, auth_scaffold_1.hasTestCredentials)() });
@@ -36923,6 +36985,14 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir,
                     healed.push(healedTest);
                     results.push(healedResult);
                     wasHealed = true;
+                    break;
+                }
+                // The app went away between runs: stop, another heal cannot help.
+                const wentDown = unreachableOrigin(healedResult.error, healedTest.code);
+                if (wentDown) {
+                    core.warning(`🔌 ${test.filename}: nothing answered at ${wentDown} on the rerun — stopping heal`);
+                    currentResult = unreachableResult(healedResult, wentDown);
+                    bugSuspected = true; // suppresses the "could not be healed after N attempts" line: N attempts were not made
                     break;
                 }
                 currentTest = healedTest;
@@ -37424,6 +37494,8 @@ const GENERATED_CONFIG_MARKER = '// Generated by GreenCI for this run.';
 function findPlaywrightConfig(workDir) {
     return PLAYWRIGHT_CONFIG_FILES.find((f) => fs.existsSync(path.join(workDir, f))) ?? null;
 }
+// One run, one process: say it once, not once per spec file.
+let overrideAnnounced = false;
 /** Run-only files: written next to the repo's config, removed when the run ends, never committed. */
 exports.BASE_URL_OVERRIDE_CONFIGS = ['playwright.greenci.config.ts', 'playwright.greenci.config.mjs'];
 /** An ES-module config gets an ES-module wrapper, so it is imported, never require()d. */
@@ -37504,6 +37576,10 @@ function ensureBaseUrlOverride(workDir, config) {
             return null;
         const name = overrideConfigName(configFile);
         fs.writeFileSync(path.join(workDir, name), baseUrlOverrideSource(configFile), 'utf-8');
+        if (!overrideAnnounced) {
+            overrideAnnounced = true;
+            core.info(`⚙️ base-url is set: tests use ${config.baseUrl} with the rest of ${configFile} unchanged`);
+        }
         return name;
     }
     catch (err) {
