@@ -22,6 +22,8 @@ jest.mock('@actions/core');
 jest.mock('../src/git-ops');
 jest.mock('../src/test-runner');
 jest.mock('../src/self-healer');
+jest.mock('../src/dev-dependency');
+import * as devDependency from '../src/dev-dependency';
 jest.mock('../src/existing-tests', () => ({
   ...jest.requireActual('../src/existing-tests'),
   readExistingTests: jest.fn(),
@@ -220,6 +222,66 @@ describe('runBootstrap — auth scaffold + config commit', () => {
     const files: string[] = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][3];
     expect(files).toContain(path.join('/work', 'playwright.config.ts'));
     expect(files).not.toContain('/work/e2e/auth.setup.ts');
+  });
+
+  // GC-078: the specs import @playwright/test; a repo that never had it must
+  // get the dependency in the same PR.
+  const saved = {
+    status: 'saved',
+    files: [
+      { path: '/work/package.json', before: Buffer.from('{}') },
+      { path: '/work/package-lock.json', before: Buffer.from('lock') },
+    ],
+  };
+
+  it('commits package.json and the lockfile when this run had to install Playwright', async () => {
+    (testRunner.ensurePlaywright as jest.Mock).mockResolvedValue(true);
+    (devDependency.savePlaywrightDevDependency as jest.Mock).mockResolvedValue(saved);
+    (gitOps.unchangedOnDefaultBranch as jest.Mock).mockResolvedValue(true);
+    await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    const [, , , files, , body] = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0];
+    expect(files).toEqual(expect.arrayContaining(['/work/package.json', '/work/package-lock.json']));
+    expect(body).toContain('This PR adds `@playwright/test` to `devDependencies` (`package.json`, `package-lock.json`)');
+    expect(body).not.toContain('npm install -D @playwright/test');
+  });
+
+  // The PR is built on the default branch and uploads whole files: a
+  // package.json that differs from it would bring the other differences along.
+  it('leaves the dependency out when the checkout is not what the default branch holds', async () => {
+    (testRunner.ensurePlaywright as jest.Mock).mockResolvedValue(true);
+    (devDependency.savePlaywrightDevDependency as jest.Mock).mockResolvedValue(saved);
+    (gitOps.unchangedOnDefaultBranch as jest.Mock).mockResolvedValue(false);
+    await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    const [, , , files, , body] = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0];
+    expect(files).not.toContain('/work/package.json');
+    expect(files).not.toContain('/work/package-lock.json');
+    expect(body).toContain('npm install -D @playwright/test');
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('not what the default branch holds'));
+    expect(devDependency.restoreFiles).toHaveBeenCalledWith(saved.files);
+  });
+
+  it('keeps the manual install instructions when the dependency could not be saved', async () => {
+    (testRunner.ensurePlaywright as jest.Mock).mockResolvedValue(true);
+    (devDependency.savePlaywrightDevDependency as jest.Mock).mockResolvedValue({ status: 'manual', files: [] });
+    await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    const body: string = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][5];
+    expect(body).toContain('npm install -D @playwright/test');
+  });
+
+  it('does not tell a repo that already declares Playwright to add it', async () => {
+    (testRunner.ensurePlaywright as jest.Mock).mockResolvedValue(true);
+    (devDependency.savePlaywrightDevDependency as jest.Mock).mockResolvedValue({ status: 'declared', files: [] });
+    await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    const body: string = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][5];
+    expect(body).not.toContain('npm install -D @playwright/test');
+    expect(body).not.toContain("didn't have Playwright");
+    expect(body).toContain('npx playwright install chromium');
+  });
+
+  it('does not touch package.json when Playwright was already in the repo', async () => {
+    (testRunner.ensurePlaywright as jest.Mock).mockResolvedValue(false);
+    await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    expect(devDependency.savePlaywrightDevDependency).not.toHaveBeenCalled();
   });
 
   it('commits the scaffold it wrote, and not when it kept the customer file', async () => {

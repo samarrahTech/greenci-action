@@ -3,6 +3,7 @@ import * as github from '@actions/github';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PRContext } from './types';
+import { gitBlobSha } from './dev-dependency';
 
 export async function commitTests(
   token: string,
@@ -89,6 +90,42 @@ export async function commitTests(
 
   core.info(`Committed ${committedFiles.length} test file(s) to ${prContext.branch}`);
   return committedFiles;
+}
+
+/**
+ * True when each file, as it was in the checkout before GreenCI changed it,
+ * is byte-for-byte what the default branch holds now. The bootstrap PR is
+ * built on the default branch and uploads whole files, so committing a file
+ * that already existed is only safe under this condition. Otherwise the PR
+ * would also carry whatever else differs: a checkout of another branch, a
+ * dependency bump merged while the run was going, an earlier workflow step
+ * that edited the file, line endings changed by the checkout, or a file that
+ * is not tracked at all.
+ */
+export async function unchangedOnDefaultBranch(
+  token: string,
+  owner: string,
+  repo: string,
+  workDir: string,
+  files: { path: string; before: Buffer }[],
+): Promise<boolean> {
+  const octokit = github.getOctokit(token);
+  try {
+    const { data: repoInfo } = await octokit.rest.repos.get({ owner, repo });
+    for (const file of files) {
+      const { data } = await octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path: path.relative(workDir, file.path).split(path.sep).join('/'),
+        ref: repoInfo.default_branch,
+      });
+      if (Array.isArray(data) || data.type !== 'file' || data.sha !== gitBlobSha(file.before)) return false;
+    }
+    return true;
+  } catch {
+    // Not on the default branch (404), or the API could not say: not proven.
+    return false;
+  }
 }
 
 /**
