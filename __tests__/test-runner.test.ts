@@ -162,7 +162,7 @@ describe('runTests', () => {
     await runTests([testFile], mockConfig, '/work');
     expect(exec.exec).toHaveBeenCalledWith(
       'npx',
-      ['playwright', 'test', 'login.spec.ts', '--reporter=line'],
+      ['playwright', 'test', '/e2e/login\\.spec\\.ts$', '--reporter=line'],
       expect.objectContaining({ cwd: '/work', ignoreReturnCode: true })
     );
   });
@@ -244,7 +244,7 @@ describe('ensureAuthSession', () => {
       expect(r.status).toBe('ok');
       expect(exec.exec).toHaveBeenCalledWith(
         'npx',
-        ['playwright', 'test', 'auth.setup.ts', '--reporter=line'],
+        ['playwright', 'test', '/auth\\.setup\\.ts$', '--reporter=line'],
         expect.objectContaining({ cwd: '/work', ignoreReturnCode: true }),
       );
       const opts = (exec.exec as jest.Mock).mock.calls[0][2];
@@ -528,13 +528,17 @@ describe('ensurePlaywright', () => {
 describe('session renewal (GC-089)', () => {
   const authedFile: GeneratedTest = { ...testFile, filename: 'expenses.spec.ts', code: "test.use({ storageState: 'playwright/.auth/user.json' });" };
   const session = '/work/playwright/.auth/user.json';
-  const ranFiles = () => (exec.exec as jest.Mock).mock.calls.map((c) => c[1].find((a: string) => /\.(spec|setup)\.ts$/.test(a)));
+  // Spec runs pass an anchored, escaped path (see specFilter); the setup runs
+  // by bare name. Name both by file again.
+  const fileArg = (args: string[]): string =>
+    (args.find((a) => /\.(spec|setup)\\?\.ts\$?$/.test(a)) as string).replace(/\$$/, '').replace(/\\/g, '').split('/').pop() as string;
+  const ranFiles = () => (exec.exec as jest.Mock).mock.calls.map((c) => fileArg(c[1]));
   const signedOut = 'Expected pattern: /expenses/\nReceived string: "http://localhost:3000/login/?next=%2Fexpenses"';
   // Each call returns the next exit code for that file (the last one repeats);
   // a failing spec prints `failureOutput`.
   const exitCodes = (codes: Record<string, number[]>, failureOutput = signedOut) =>
     (exec.exec as jest.Mock).mockImplementation(async (_c: string, args: string[], opts: { listeners?: { stderr?: (d: Buffer) => void } }) => {
-      const file = args.find((a) => /\.(spec|setup)\.ts$/.test(a)) as string;
+      const file = fileArg(args);
       const list = codes[file] ?? [0];
       const code = list.length > 1 ? list.shift() : list[0];
       if (code !== 0 && file.endsWith('.spec.ts')) opts.listeners?.stderr?.(Buffer.from(failureOutput));
@@ -587,7 +591,7 @@ describe('session renewal (GC-089)', () => {
     let specRuns = 0;
     (exec.exec as jest.Mock).mockImplementation(
       async (_c: string, args: string[], opts: { listeners?: { stdout?: (d: Buffer) => void; stderr?: (d: Buffer) => void } }) => {
-        if (!args.includes('expenses.spec.ts')) return 0;
+        if (fileArg(args) !== 'expenses.spec.ts') return 0;
         if (++specRuns > 1) return 0;
         opts.listeners?.stderr?.(Buffer.from('(node:1) ExperimentalWarning: something'));
         opts.listeners?.stdout?.(Buffer.from(signedOut));
@@ -754,5 +758,35 @@ describe('base-url override for repos with their own Playwright config', () => {
     expect(() => removeBaseUrlOverride('/work')).not.toThrow();
     expect(mockUnlinkSync).toHaveBeenCalledWith('/work/playwright.greenci.config.ts');
     expect(mockUnlinkSync).toHaveBeenCalledWith('/work/playwright.greenci.config.mjs');
+  });
+});
+
+// GC-095: the spec's basename went to Playwright as a regular expression, so
+// running add.spec.ts also ran expenses-add.spec.ts and reported its failures
+// against the wrong spec.
+describe('specFilter', () => {
+  const { specFilter } = jest.requireActual('../src/test-runner');
+
+  it('matches only this spec: path from the repo root, escaped, anchored at the end', () => {
+    const filter = new RegExp(specFilter('/work', '/work/e2e/add.spec.ts'));
+    expect(filter.test('/work/e2e/add.spec.ts')).toBe(true);
+    expect(filter.test('/work/e2e/expenses-add.spec.ts')).toBe(false);
+    expect(filter.test('/work/e2e/sub/add.spec.ts')).toBe(false);
+    expect(filter.test('/work/e2e/addXspec.ts')).toBe(false);
+    expect(filter.test('/work/e2e/add.spec.ts.bak')).toBe(false);
+  });
+
+  // The sign-in setup runs by bare name; it must not also run oauth.setup.ts.
+  it('fileFilter matches a bare filename only as a whole path segment', () => {
+    const { fileFilter } = jest.requireActual('../src/test-runner');
+    const filter = new RegExp(fileFilter('auth.setup.ts'));
+    expect(filter.test('/work/e2e/auth.setup.ts')).toBe(true);
+    expect(filter.test('/work/e2e/oauth.setup.ts')).toBe(false);
+    expect(filter.test('/work/e2e/authXsetup.ts')).toBe(false);
+  });
+
+  it('escapes every regex character a filename can hold', () => {
+    const file = '/work/e2e/we(ird)+[name]$.spec.ts';
+    expect(new RegExp(specFilter('/work', file)).test(file)).toBe(true);
   });
 });

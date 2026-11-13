@@ -37326,6 +37326,8 @@ exports.looksSignedOut = looksSignedOut;
 exports.writeTests = writeTests;
 exports.readPageSnapshot = readPageSnapshot;
 exports.cut = cut;
+exports.specFilter = specFilter;
+exports.fileFilter = fileFilter;
 exports.runTests = runTests;
 exports.cleanupTests = cleanupTests;
 const core = __importStar(__nccwpck_require__(7484));
@@ -37666,7 +37668,7 @@ async function ensureAuthSession(workDir, config, env = process.env) {
         return { status: 'skipped' };
     }
     core.info(`🔐 Signing in via ${auth_scaffold_1.AUTH_SETUP_FILENAME} so authenticated specs have a session...`);
-    const { exitCode, stdout, stderr } = await runPlaywrightFile(auth_scaffold_1.AUTH_SETUP_FILENAME, workDir, config, env);
+    const { exitCode, stdout, stderr } = await runPlaywrightFile(fileFilter(auth_scaffold_1.AUTH_SETUP_FILENAME), workDir, config, env);
     const output = [stdout, stderr].filter(Boolean).join('\n');
     if (exitCode !== 0) {
         // Playwright's own "nothing matched the filter" error, at line start, so a
@@ -37708,7 +37710,7 @@ async function renewSession(workDir, config, session) {
             fs.renameSync(sessionFile, previous);
             movedAside = true;
         }
-        const run = await runPlaywrightFile(auth_scaffold_1.AUTH_SETUP_FILENAME, workDir, config);
+        const run = await runPlaywrightFile(fileFilter(auth_scaffold_1.AUTH_SETUP_FILENAME), workDir, config);
         output = [run.stdout, run.stderr].filter(Boolean).join('\n');
         if (run.exitCode === 0 && fs.existsSync(sessionFile)) {
             try {
@@ -37804,6 +37806,43 @@ const MAX_PAGE_SNAPSHOT = 8000;
 const MAX_SNAPSHOT_LINE = 300;
 const MIN_TREE_BUDGET = 1000;
 /**
+ * The accessibility tree says what was on the page but not which page. On
+ * TME-web the healer blamed "/expenses" for a 404 that belonged to
+ * /businesses/{id}/expenses/new. Playwright's error context has no URL, but
+ * it does show the test source with the failing line marked, so report the
+ * last page.goto the test made before that line. A hint, not the address
+ * bar: the app may have redirected since, and the wording says so.
+ *
+ * Says nothing rather than something wrong:
+ * - it reads only the lines of the failing test (it stops at the test(...)
+ *   that opens it), so a goto from an earlier test in the file is not used;
+ * - the failing line itself is skipped: a goto that failed did not arrive;
+ * - comment lines are skipped, and the target must be one whole string
+ *   literal, so `'/a/' + id` or a template with ${...} gives no hint.
+ */
+function lastNavigation(testSource) {
+    if (!testSource)
+        return undefined;
+    const lines = testSource.split('\n');
+    const failing = lines.findIndex((l) => /^>\s*\d+\s*\|/.test(l));
+    if (failing === -1)
+        return undefined;
+    for (let i = failing - 1; i >= 0; i--) {
+        const code = lines[i].replace(/^\s*\d+\s*\|/, '');
+        if (/^\s*(\/\/|\*|\/\*)/.test(code))
+            continue;
+        const gotos = [...code.matchAll(/\.goto\(\s*(['"`])([^'"`$]*)\1\s*[,)]/g)];
+        const target = gotos.pop()?.[2];
+        if (target !== undefined) {
+            return `Last page.goto in the test before the failing line: ${cut(target, 200)} (the app may have redirected since)`;
+        }
+        // The line that opens the failing test: nothing above it belongs to it.
+        if (/\b(test|it)(\.\w+)*\s*\(/.test(code))
+            return undefined;
+    }
+    return undefined;
+}
+/**
  * When a spec fails, Playwright saves the page's accessibility tree to
  * error-context.md and prints "Error Context: <path>". That is the page the
  * spec actually reached: signed in, past client-side redirects, on routes
@@ -37815,7 +37854,9 @@ const MIN_TREE_BUDGET = 1000;
  * each, so the last attempt wins, and a file filter that also matched another
  * spec does not get that spec's page in here. The printed paths come from
  * output model-written code can also print to, so only an error-context.md
- * inside the repo is read, and only its snapshot section leaves the runner.
+ * inside the repo is read. What leaves the runner is its snapshot section
+ * and, when the test source shows one, the target of the test's last
+ * page.goto before the failing line (see lastNavigation).
  * The result is at most MAX_PAGE_SNAPSHOT characters.
  */
 function readPageSnapshot(output, workDir, specFile) {
@@ -37842,16 +37883,31 @@ function readPageSnapshot(output, workDir, specFile) {
         const tree = sections.get('Page snapshot')?.replace(/^```\w*\s*$/gm, '').trim();
         if (!tree)
             continue;
-        const name = info?.match(/^- Name:\s*(.+)$/m)?.[1].trim() ?? path.basename(path.dirname(file)).replace(/-retry\d+$/, '');
-        byTest.set(name, tree); // a later retry replaces the earlier attempt's page
+        // Playwright names the result folder <spec>-<test>-<project>, so it tells
+        // the same test in chromium apart from the same test in firefox. Keyed by
+        // name alone, one project's page silently replaced the other's.
+        const folder = path.basename(path.dirname(file)).replace(/-retry\d+$/, '');
+        const name = info?.match(/^- Name:\s*(.+)$/m)?.[1].trim() ?? folder;
+        // a later retry replaces the earlier attempt's page
+        byTest.set(`${name}\u0000${folder}`, { name, folder, tree, navigation: lastNavigation(sections.get('Test source')) });
     }
     if (byTest.size === 0)
         return undefined;
-    const labelled = byTest.size > 1;
-    const headers = [...byTest.keys()].map((name) => (labelled ? `# ${cut(name, 200)}\n` : ''));
+    // The usual multi-project failure shows the same page in every browser.
+    // Send it once: each extra copy takes budget from the other tests' pages.
+    const entries = [...byTest.values()].filter((e, i, all) => all.findIndex((o) => o.name === e.name && o.tree === e.tree) === i);
+    const labelled = entries.length > 1;
+    const repeated = new Set(entries.map((e) => e.name).filter((n, i, all) => all.indexOf(n) !== i));
+    // The navigation line sits with the header, outside fitSnapshot, which
+    // would otherwise drop it first on a large page. Name and folder are cut
+    // separately so a long test name cannot push the project off the header.
+    const headers = entries.map((e) => {
+        const label = repeated.has(e.name) ? `${cut(e.name, 150)} (${cut(e.folder, 45)})` : cut(e.name, 200);
+        return (labelled ? `# ${label}\n` : '') + (e.navigation ? `${e.navigation}\n` : '');
+    });
     // Headers come out of the budget first, but every tree keeps a usable share.
-    const budget = Math.max(MIN_TREE_BUDGET, Math.floor((MAX_PAGE_SNAPSHOT - headers.join('').length - 2 * (byTest.size - 1)) / byTest.size));
-    const blocks = [...byTest.values()].map((tree, i) => headers[i] + fitSnapshot(tree, budget));
+    const budget = Math.max(MIN_TREE_BUDGET, Math.floor((MAX_PAGE_SNAPSHOT - headers.join('').length - 2 * (entries.length - 1)) / entries.length));
+    const blocks = entries.map((e, i) => headers[i] + fitSnapshot(e.tree, budget));
     return cut(blocks.join('\n\n'), MAX_PAGE_SNAPSHOT);
 }
 /**
@@ -37942,12 +37998,29 @@ function fitSnapshot(tree, budget) {
     // Back in document order, so nesting still reads as a tree.
     return kept.sort((a, b) => a - b).map((i) => lines[i]).join('\n') + marker;
 }
+/**
+ * Playwright treats a file argument as a regular expression matched against
+ * each spec's absolute path. A bare `add.spec.ts` therefore also ran
+ * `expenses-add.spec.ts`, any `add.spec.ts` in another folder, and anything
+ * the unescaped dots happened to match, and their failures were reported
+ * against this spec. Match this one file: its path from the repo root,
+ * escaped, anchored at the end.
+ */
+function specFilter(workDir, filePath) {
+    return fileFilter(path.relative(workDir, filePath).split(path.sep).join('/'));
+}
+/**
+ * Filter for a file by the end of its path: `e2e/add.spec.ts`, or a bare
+ * `auth.setup.ts` wherever the repo keeps it. The leading slash is what stops
+ * `auth.setup.ts` from also running `oauth.setup.ts`.
+ */
+function fileFilter(pathSuffix) {
+    return `/${pathSuffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+}
 async function runSpec(test, filePath, config, workDir) {
     const startTime = Date.now();
     try {
-        // Pass just the filename as a regex filter — Playwright matches against absolute paths
-        const basename = path.basename(filePath);
-        const { exitCode, stdout, stderr } = await runPlaywrightFile(basename, workDir, config);
+        const { exitCode, stdout, stderr } = await runPlaywrightFile(specFilter(workDir, filePath), workDir, config);
         const duration = Date.now() - startTime;
         const passed = exitCode === 0;
         if (passed) {
