@@ -9,6 +9,8 @@ export interface ActionConfig {
   awsRegion: string;
   testDir: string;
   baseUrl: string;
+  /** The workflow set `base-url` itself (not the default): it overrides a repo config's baseURL. */
+  baseUrlExplicit?: boolean;
   maxRetries: number;
   autoCommit: boolean;
   sendPageSnapshot: boolean;

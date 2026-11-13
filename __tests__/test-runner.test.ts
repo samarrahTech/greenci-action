@@ -656,3 +656,103 @@ describe('session renewal (GC-089)', () => {
     expect(ranFiles()).toEqual(['expenses.spec.ts']);
   });
 });
+
+// GC-108: a repo with its own playwright.config kept its baseURL (localhost)
+// when the workflow pointed base-url at a preview deployment, so every
+// generated test failed with ECONNREFUSED.
+describe('base-url override for repos with their own Playwright config', () => {
+  const actual = jest.requireActual('../src/test-runner');
+  const { ensureBaseUrlOverride, baseUrlOverrideSource, runPlaywrightFile, removeBaseUrlOverride } = actual;
+  const preview: ActionConfig = { ...mockConfig, baseUrl: 'https://pr-1.example.pages.dev', baseUrlExplicit: true };
+  const OWN = "export default { use: { baseURL: 'http://localhost:3000' } };";
+
+  /** Which files exist in /work; everything else is absent. */
+  const files = (...names: string[]) =>
+    mockExistsSync.mockImplementation((p: unknown) => names.some((n) => String(p).endsWith(`/work/${n}`)));
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReadFileSync.mockReset();
+    mockReadFileSync.mockReturnValue(OWN);
+    mockWriteFileSync.mockReset();
+    mockUnlinkSync.mockReset();
+    (exec.exec as jest.Mock).mockResolvedValue(0);
+  });
+
+  it('wraps the repo config and passes it to Playwright when base-url is set', async () => {
+    files('playwright.config.ts');
+    await runPlaywrightFile('a.spec.ts', '/work', preview, {});
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      '/work/playwright.greenci.config.ts',
+      expect.stringContaining("from './playwright.config'"),
+      'utf-8',
+    );
+    const [, args, opts] = (exec.exec as jest.Mock).mock.calls[0];
+    expect(args).toEqual(['playwright', 'test', 'a.spec.ts', '--reporter=line', '--config=playwright.greenci.config.ts']);
+    expect(opts.env.BASE_URL).toBe('https://pr-1.example.pages.dev');
+  });
+
+  it('leaves the repo config in charge when base-url was not set', async () => {
+    files('playwright.config.ts');
+    await runPlaywrightFile('a.spec.ts', '/work', { ...mockConfig, baseUrlExplicit: false }, {});
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+    expect((exec.exec as jest.Mock).mock.calls[0][1]).toEqual(['playwright', 'test', 'a.spec.ts', '--reporter=line']);
+  });
+
+  it('does nothing when the repo has no config', () => {
+    files();
+    expect(ensureBaseUrlOverride('/work', preview)).toBeNull();
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+  });
+
+  it('does not wrap the config GreenCI generated for the run', () => {
+    files('playwright.config.ts');
+    mockReadFileSync.mockReturnValue(playwrightConfigSource({ baseUrl: preview.baseUrl, testDir: 'e2e' }));
+    expect(ensureBaseUrlOverride('/work', preview)).toBeNull();
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+  });
+
+  it('rewrites a wrapper left by an earlier run instead of trusting it', () => {
+    files('playwright.config.ts', 'playwright.greenci.config.ts');
+    expect(ensureBaseUrlOverride('/work', preview)).toBe('playwright.greenci.config.ts');
+    expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['playwright.config.ts', 'playwright.greenci.config.ts', "from './playwright.config';"],
+    ['playwright.config.js', 'playwright.greenci.config.ts', "from './playwright.config.js';"],
+    ['playwright.config.cjs', 'playwright.greenci.config.ts', "from './playwright.config.cjs';"],
+    ['playwright.config.cts', 'playwright.greenci.config.ts', "from './playwright.config.cts';"],
+    ['playwright.config.mjs', 'playwright.greenci.config.mjs', "from './playwright.config.mjs';"],
+    ['playwright.config.mts', 'playwright.greenci.config.mjs', "from './playwright.config.mts';"],
+  ])('%s is wrapped by %s', (own, wrapper, importLine) => {
+    files(own);
+    expect(ensureBaseUrlOverride('/work', preview)).toBe(wrapper);
+    expect(mockWriteFileSync).toHaveBeenCalledWith(`/work/${wrapper}`, expect.stringContaining(importLine), 'utf-8');
+  });
+
+  it('reads the URL from BASE_URL instead of splicing the input into source', () => {
+    const src = baseUrlOverrideSource('playwright.config.ts');
+    expect(src).toContain('process.env.BASE_URL');
+    expect(src).not.toContain('pages.dev');
+  });
+
+  it('falls back to the repo config when the wrapper cannot be written', async () => {
+    files('playwright.config.ts');
+    mockWriteFileSync.mockImplementation(() => {
+      throw new Error('EROFS: read-only file system');
+    });
+    await runPlaywrightFile('a.spec.ts', '/work', preview, {});
+    expect((exec.exec as jest.Mock).mock.calls[0][1]).toEqual(['playwright', 'test', 'a.spec.ts', '--reporter=line']);
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Could not apply base-url'));
+  });
+
+  it('removes both wrapper names and tolerates their absence', () => {
+    mockUnlinkSync.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+    expect(() => removeBaseUrlOverride('/work')).not.toThrow();
+    expect(mockUnlinkSync).toHaveBeenCalledWith('/work/playwright.greenci.config.ts');
+    expect(mockUnlinkSync).toHaveBeenCalledWith('/work/playwright.greenci.config.mjs');
+  });
+});

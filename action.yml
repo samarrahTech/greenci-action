@@ -38,9 +38,9 @@ inputs:
     required: false
     default: 'e2e'
   base-url:
-    description: 'App base URL for E2E tests'
+    description: "App base URL for E2E tests (default http://localhost:3000). When set, it replaces baseURL from the repo's own Playwright config for this run"
     required: false
-    default: 'http://localhost:3000'
+    default: ''
   max-retries:
     description: 'Max self-healing retries'
     required: false
