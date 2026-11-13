@@ -290,6 +290,57 @@ describe('ensureAuthSession', () => {
       expect(r.output).toContain('TimeoutError');
     });
   });
+
+  // GC-119: a dead app fails the sign-in first; it used to read as a
+  // credentials problem.
+  const setupRefused =
+    '  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/login';
+
+  it('reports the app as unreachable when the setup could not connect at all', async () => {
+    await withCreds(async () => {
+      execWithOutput(1, setupRefused);
+      mockReadFileSync.mockReturnValue("await page.goto('/login');");
+      const r = await ensureAuthSession('/work', mockConfig);
+      expect(r.status).toBe('unreachable');
+      expect(r.origin).toBe('http://localhost:3000');
+      expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('could not reach the app'));
+      expect(core.warning).not.toHaveBeenCalledWith(expect.stringContaining('could not sign in'));
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('ERR_CONNECTION_REFUSED'));
+    });
+  });
+
+  it('stays a sign-in failure when a retry reached the app and failed there', async () => {
+    await withCreds(async () => {
+      execWithOutput(1, `${setupRefused}\n    Retry #1\n    TimeoutError: page.waitForURL: Timeout 15000ms exceeded.`);
+      mockReadFileSync.mockReturnValue("await page.goto('/login');");
+      const r = await ensureAuthSession('/work', mockConfig);
+      expect(r.status).toBe('failed');
+    });
+  });
+
+  it('stays a sign-in failure when the setup file names that address itself', async () => {
+    await withCreds(async () => {
+      execWithOutput(1, setupRefused);
+      mockReadFileSync.mockReturnValue("await page.goto('http://localhost:3000/login');");
+      const r = await ensureAuthSession('/work', mockConfig);
+      expect(r.status).toBe('failed');
+    });
+  });
+
+  it('appDownResults fails every test with the one reason, without running it', () => {
+    const { appDownResults } = jest.requireActual('../src/test-runner');
+    const results = appDownResults(
+      [{ filename: 'a.spec.ts' }, { filename: 'b.spec.ts' }],
+      { status: 'unreachable', origin: 'http://localhost:3000', output: setupRefused },
+    );
+    expect(results.map((r: { filename: string }) => r.filename)).toEqual(['a.spec.ts', 'b.spec.ts']);
+    for (const r of results) {
+      expect(r.passed).toBe(false);
+      expect(r.unreachable).toBe('http://localhost:3000');
+      expect(r.error).toContain('Nothing answered at http://localhost:3000');
+    }
+    expect(exec.exec).not.toHaveBeenCalled();
+  });
 });
 
 describe('cleanupTests', () => {

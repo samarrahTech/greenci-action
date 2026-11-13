@@ -33851,7 +33851,7 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     // Only a session that signed in is worth renewing (see SessionRenewal).
     const session = authSession?.status === 'ok' ? { rotates: false, stopped: false } : undefined;
     core.info('🏃 Running the bootstrap suite...');
-    const initialResults = await (0, test_runner_1.runTests)(generatedTests, config, workDir, session);
+    const initialResults = authSession?.status === 'unreachable' ? (0, test_runner_1.appDownResults)(generatedTests, authSession) : await (0, test_runner_1.runTests)(generatedTests, config, workDir, session);
     const failedTests = initialResults
         .map((result, i) => ({ test: generatedTests[i], result }))
         .filter(({ result }) => !result.passed);
@@ -35139,7 +35139,7 @@ async function run() {
         core.setOutput('tests-passed', String(report.testsPassed));
         core.setOutput('tests-failed', String(report.testsFailed));
         if (report.testsFailed > 0) {
-            core.warning(`${report.testsFailed} test(s) failed after self-healing attempts`);
+            core.warning(`${report.testsFailed} test(s) failed${config.maxRetries > 0 ? ' after self-healing attempts' : ''}`);
         }
         core.info(`🌱 GreenCI complete: ${report.testsPassed}/${report.testsGenerated} tests passing`);
     }
@@ -36904,59 +36904,12 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.unreachableOrigin = unreachableOrigin;
 exports.healFailedTests = healFailedTests;
 const core = __importStar(__nccwpck_require__(7484));
 const test_runner_1 = __nccwpck_require__(7194);
 const auth_scaffold_1 = __nccwpck_require__(7972);
 const assertion_lint_1 = __nccwpck_require__(3473);
-const UNREACHABLE_CODES = 'net::ERR_(?:CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED|CONNECTION_TIMED_OUT|EMPTY_RESPONSE|NAME_NOT_RESOLVED|ADDRESS_UNREACHABLE|INTERNET_DISCONNECTED)' +
-    '|NS_ERROR_(?:CONNECTION_REFUSED|UNKNOWN_HOST|NET_RESET|NET_TIMEOUT)' +
-    '|Could not connect to (?:the )?server';
-/**
- * The address a navigation could not reach, when that is the whole story of
- * the failure: nothing listening, or the name does not resolve. Returns the
- * origin (e.g. http://localhost:3000), or null when this is an ordinary
- * failure the healer should see.
- *
- * Deliberately narrow, because a wrong "unreachable" verdict denies a real
- * heal:
- * - the network error must be the message of a page.goto itself, not a
- *   code-frame line or a request the page made;
- * - an assertion failure anywhere in the output means some test did reach a
- *   page, so the file is not simply "app down";
- * - if the spec spells that origin out itself, the address is the test's own
- *   mistake (a hard-coded port, an invented host) and a heal can fix it.
- */
-function unreachableOrigin(error, specCode = '') {
-    if (!error)
-        return null;
-    const goto = new RegExp(`page\\.goto: (?:${UNREACHABLE_CODES})(?: at (\\S+))?`).exec(error);
-    if (!goto)
-        return null;
-    if (/Error: expect\(/.test(error))
-        return null;
-    const url = goto[1] ?? /navigating to "([^"]+)"/.exec(error)?.[1];
-    if (!url)
-        return null;
-    let origin;
-    try {
-        origin = new URL(url).origin;
-    }
-    catch {
-        return null;
-    }
-    if (origin === 'null' || specCode.includes(origin))
-        return null;
-    return origin;
-}
-function unreachableResult(result, origin) {
-    return {
-        ...result,
-        error: `Nothing answered at ${origin}, so this is not a problem with the test. ` +
-            `Check that the app is running before GreenCI starts and that base-url (or baseURL in your Playwright config) points at it.\n\n${result.error}`,
-    };
-}
+const unreachable_1 = __nccwpck_require__(5117);
 async function healFailedTests(failedTests, context, config, llmClient, workDir, protect, session) {
     const healed = [];
     const results = [];
@@ -36966,10 +36919,16 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir,
         // Nothing answered at the app's address: no edit to the test can fix
         // that, so do not spend heal calls on it. Checked before the auth
         // classifier, which would otherwise read a dead app as a sign-in problem.
-        const down = unreachableOrigin(result.error, test.code);
+        // The sign-in setup may already have found the app down and marked every
+        // result; those carry their message already.
+        if (result.unreachable !== undefined) {
+            results.push(result);
+            continue;
+        }
+        const down = (0, unreachable_1.unreachableOrigin)(result.error, test.code);
         if (down) {
             core.warning(`🔌 ${test.filename}: nothing answered at ${down} — skipping heal`);
-            results.push(unreachableResult(result, down));
+            results.push((0, unreachable_1.unreachableResult)(result, down));
             continue;
         }
         // Auth walls are not selector bugs: a heal cannot conjure a session, so
@@ -37040,10 +36999,10 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir,
                     break;
                 }
                 // The app went away between runs: stop, another heal cannot help.
-                const wentDown = unreachableOrigin(healedResult.error, healedTest.code);
+                const wentDown = (0, unreachable_1.unreachableOrigin)(healedResult.error, healedTest.code);
                 if (wentDown) {
                     core.warning(`🔌 ${test.filename}: nothing answered at ${wentDown} on the rerun — stopping heal`);
-                    currentResult = unreachableResult(healedResult, wentDown);
+                    currentResult = (0, unreachable_1.unreachableResult)(healedResult, wentDown);
                     bugSuspected = true; // suppresses the "could not be healed after N attempts" line: N attempts were not made
                     break;
                 }
@@ -37274,13 +37233,14 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     // Specs run one file at a time: give authenticated ones a session up front
     // (same reason as bootstrap — see ensureAuthSession).
     let session;
+    let auth;
     if (writtenTests.some((t) => t.code.includes('storageState'))) {
-        const auth = await (0, test_runner_1.ensureAuthSession)(workDir, config);
+        auth = await (0, test_runner_1.ensureAuthSession)(workDir, config);
         if (auth.status === 'ok')
             session = { rotates: false, stopped: false };
     }
     core.info('🏃 Running tests...');
-    const initialResults = await (0, test_runner_1.runTests)(writtenTests, config, workDir, session);
+    const initialResults = auth?.status === 'unreachable' ? (0, test_runner_1.appDownResults)(writtenTests, auth) : await (0, test_runner_1.runTests)(writtenTests, config, workDir, session);
     // 4. Self-heal failed tests
     const failedTests = initialResults
         // Pair against writtenTests: runTests was given that array, so index i
@@ -37291,8 +37251,13 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     let healedTests = [];
     let healedResults = [];
     let suspectedBugs = [];
-    if (failedTests.length > 0 && config.maxRetries > 0) {
-        core.info(`🔧 Attempting to heal ${failedTests.length} failed test(s)...`);
+    // Also with max-retries: 0. The healer then makes no heal call, but it is
+    // what classifies a failure (app unreachable, needs credentials) and what
+    // returns the failed result. Skipping it dropped every failed test from the
+    // report, so a run with failures counted 0 failed.
+    if (failedTests.length > 0) {
+        if (config.maxRetries > 0)
+            core.info(`🔧 Attempting to heal ${failedTests.length} failed test(s)...`);
         const healing = await (0, self_healer_1.healFailedTests)(failedTests, context, config, llmClient, workDir, undefined, session);
         healedTests = healing.healed;
         healedResults = healing.results;
@@ -37373,6 +37338,7 @@ exports.ensureBaseUrlOverride = ensureBaseUrlOverride;
 exports.removeBaseUrlOverride = removeBaseUrlOverride;
 exports.ensurePlaywrightConfig = ensurePlaywrightConfig;
 exports.runPlaywrightFile = runPlaywrightFile;
+exports.appDownResults = appDownResults;
 exports.ensureAuthSession = ensureAuthSession;
 exports.looksSignedOut = looksSignedOut;
 exports.writeTests = writeTests;
@@ -37389,6 +37355,7 @@ const path = __importStar(__nccwpck_require__(6928));
 const safe_paths_1 = __nccwpck_require__(3);
 const test_env_1 = __nccwpck_require__(925);
 const auth_scaffold_1 = __nccwpck_require__(7972);
+const unreachable_1 = __nccwpck_require__(5117);
 /**
  * Zero-test repos (the bootstrap audience) usually have neither
  * @playwright/test nor browsers installed. Install what's missing so the
@@ -37704,6 +37671,23 @@ async function runPlaywrightFile(filter, workDir, config, env = process.env) {
     });
     return { exitCode, stdout, stderr };
 }
+function readSetupSource(workDir, config) {
+    try {
+        return fs.readFileSync(path.join(workDir, config.testDir, auth_scaffold_1.AUTH_SETUP_FILENAME), 'utf-8');
+    }
+    catch {
+        return '';
+    }
+}
+/**
+ * The sign-in setup found nothing answering at the app's address. Running
+ * the specs would only repeat that once per file, and the authenticated ones
+ * would fail on a missing session and be reported as a credentials problem.
+ * Give every test the one true reason instead, without running it.
+ */
+function appDownResults(tests, auth) {
+    return tests.map((t) => (0, unreachable_1.unreachableResult)({ filename: t.filename, passed: false, duration: 0, error: (auth.output ?? '').substring(0, 1200) }, auth.origin ?? ''));
+}
 /**
  * Sign in before the suite runs. Specs are executed one file at a time
  * (see runTests), so Playwright project dependencies only produce the session
@@ -37729,6 +37713,17 @@ async function ensureAuthSession(workDir, config, env = process.env) {
         if (/^\s*Error: No tests found/im.test(output)) {
             core.warning(`⚠️ No Playwright project in this repo's config runs ${auth_scaffold_1.AUTH_SETUP_FILENAME} — authenticated specs cannot get a session (see PR instructions)`);
             return { status: 'not-wired', output };
+        }
+        // A dead app fails the sign-in first, and every authenticated spec after
+        // it for want of a session. Reported as a sign-in problem, that sent
+        // people to check credentials that were fine. The setup file's own source
+        // goes in so an address it spells out itself (an identity provider, a
+        // hard-coded port) is not blamed on base-url.
+        const down = (0, unreachable_1.unreachableThroughout)(output, readSetupSource(workDir, config));
+        if (down) {
+            core.warning(`🔌 The login setup could not reach the app: nothing answered at ${down}. No spec is run`);
+            core.info(`   Setup output:\n${output.substring(0, 800)}`);
+            return { status: 'unreachable', origin: down, output };
         }
         core.warning(`❌ The login setup (${auth_scaffold_1.AUTH_SETUP_FILENAME}) could not sign in — authenticated specs will be reported as blocked`);
         core.info(`   Setup output:\n${output.substring(0, 800)}`);
@@ -38267,6 +38262,83 @@ sendPageSnapshot = true) {
             core.warning(`Trace upload error for ${testFilename}: ${err instanceof Error ? err.message : err}`);
         }
     }
+}
+
+
+/***/ }),
+
+/***/ 5117:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.unreachableOrigin = unreachableOrigin;
+exports.unreachableResult = unreachableResult;
+exports.unreachableThroughout = unreachableThroughout;
+const UNREACHABLE_CODES = 'net::ERR_(?:CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED|CONNECTION_TIMED_OUT|EMPTY_RESPONSE|NAME_NOT_RESOLVED|ADDRESS_UNREACHABLE|INTERNET_DISCONNECTED)' +
+    '|NS_ERROR_(?:CONNECTION_REFUSED|UNKNOWN_HOST|NET_RESET|NET_TIMEOUT)' +
+    '|Could not connect to (?:the )?server';
+/**
+ * The address a navigation could not reach, when that is the whole story of
+ * the failure: nothing listening, or the name does not resolve. Returns the
+ * origin (e.g. http://localhost:3000), or null when this is an ordinary
+ * failure the healer should see.
+ *
+ * Deliberately narrow, because a wrong "unreachable" verdict denies a real
+ * heal:
+ * - the network error must be the message of a page.goto itself, not a
+ *   code-frame line or a request the page made;
+ * - an assertion failure anywhere in the output means some test did reach a
+ *   page, so the file is not simply "app down";
+ * - if the spec spells that origin out itself, the address is the test's own
+ *   mistake (a hard-coded port, an invented host) and a heal can fix it.
+ */
+function unreachableOrigin(error, specCode = '') {
+    if (!error)
+        return null;
+    const goto = new RegExp(`page\\.goto: (?:${UNREACHABLE_CODES})(?: at (\\S+))?`).exec(error);
+    if (!goto)
+        return null;
+    if (/Error: expect\(/.test(error))
+        return null;
+    const url = goto[1] ?? /navigating to "([^"]+)"/.exec(error)?.[1];
+    if (!url)
+        return null;
+    let origin;
+    try {
+        origin = new URL(url).origin;
+    }
+    catch {
+        return null;
+    }
+    if (origin === 'null' || specCode.includes(origin))
+        return null;
+    return origin;
+}
+/** The failed result as the PR should show it: what did not answer, then Playwright's own output. */
+function unreachableResult(result, origin) {
+    return {
+        ...result,
+        unreachable: origin,
+        error: `Nothing answered at ${origin}, so this is not a problem with the test. ` +
+            `Check that the app is running before GreenCI starts and that base-url (or baseURL in your Playwright config) points at it.\n\n${result.error ?? ''}`,
+    };
+}
+/**
+ * Stricter reading for a whole run's output (the sign-in setup, which may
+ * have been retried): unreachable only if every error in it is the
+ * navigation failing to connect. One attempt that reached the app and failed
+ * for another reason (a wrong password shows up as a TimeoutError) means the
+ * app is up, and the real problem is the other error.
+ */
+function unreachableThroughout(output, specCode = '') {
+    const origin = unreachableOrigin(output, specCode);
+    if (!origin)
+        return null;
+    const errors = output.match(/^\s*(?:[A-Za-z.]*Error|TimeoutError): .*$/gm) ?? [];
+    const connect = new RegExp(`page\\.goto: (?:${UNREACHABLE_CODES})`);
+    return errors.every((line) => connect.test(line)) ? origin : null;
 }
 
 

@@ -3,6 +3,7 @@ import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SuspectedBug, T
 import { runTests, writeTests, type ProtectExisting, type SessionRenewal } from './test-runner';
 import { classifyAuthFailure, hasTestCredentials, type AuthFailureKind } from './auth-scaffold';
 import { lintAssertions } from './assertion-lint';
+import { unreachableOrigin, unreachableResult } from './unreachable';
 
 export interface HealingOutcome {
   healed: GeneratedTest[];
@@ -11,52 +12,6 @@ export interface HealingOutcome {
   /** Failures caused by auth (missing session, or a setup that couldn't sign
    *  in) — deterministically classified, never sent to the LLM healer. */
   authBlocked: { filename: string; error?: string; kind: AuthFailureKind }[];
-}
-
-const UNREACHABLE_CODES =
-  'net::ERR_(?:CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED|CONNECTION_TIMED_OUT|EMPTY_RESPONSE|NAME_NOT_RESOLVED|ADDRESS_UNREACHABLE|INTERNET_DISCONNECTED)' +
-  '|NS_ERROR_(?:CONNECTION_REFUSED|UNKNOWN_HOST|NET_RESET|NET_TIMEOUT)' +
-  '|Could not connect to (?:the )?server';
-
-/**
- * The address a navigation could not reach, when that is the whole story of
- * the failure: nothing listening, or the name does not resolve. Returns the
- * origin (e.g. http://localhost:3000), or null when this is an ordinary
- * failure the healer should see.
- *
- * Deliberately narrow, because a wrong "unreachable" verdict denies a real
- * heal:
- * - the network error must be the message of a page.goto itself, not a
- *   code-frame line or a request the page made;
- * - an assertion failure anywhere in the output means some test did reach a
- *   page, so the file is not simply "app down";
- * - if the spec spells that origin out itself, the address is the test's own
- *   mistake (a hard-coded port, an invented host) and a heal can fix it.
- */
-export function unreachableOrigin(error: string | undefined, specCode = ''): string | null {
-  if (!error) return null;
-  const goto = new RegExp(`page\\.goto: (?:${UNREACHABLE_CODES})(?: at (\\S+))?`).exec(error);
-  if (!goto) return null;
-  if (/Error: expect\(/.test(error)) return null;
-  const url = goto[1] ?? /navigating to "([^"]+)"/.exec(error)?.[1];
-  if (!url) return null;
-  let origin: string;
-  try {
-    origin = new URL(url).origin;
-  } catch {
-    return null;
-  }
-  if (origin === 'null' || specCode.includes(origin)) return null;
-  return origin;
-}
-
-function unreachableResult(result: TestResult, origin: string): TestResult {
-  return {
-    ...result,
-    error:
-      `Nothing answered at ${origin}, so this is not a problem with the test. ` +
-      `Check that the app is running before GreenCI starts and that base-url (or baseURL in your Playwright config) points at it.\n\n${result.error}`,
-  };
 }
 
 export async function healFailedTests(
@@ -77,6 +32,12 @@ export async function healFailedTests(
     // Nothing answered at the app's address: no edit to the test can fix
     // that, so do not spend heal calls on it. Checked before the auth
     // classifier, which would otherwise read a dead app as a sign-in problem.
+    // The sign-in setup may already have found the app down and marked every
+    // result; those carry their message already.
+    if (result.unreachable !== undefined) {
+      results.push(result);
+      continue;
+    }
     const down = unreachableOrigin(result.error, test.code);
     if (down) {
       core.warning(`🔌 ${test.filename}: nothing answered at ${down} — skipping heal`);
