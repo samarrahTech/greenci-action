@@ -34134,6 +34134,7 @@ function getConfig() {
         // The heal API caps attempt at 5; clamp so extra retries don't 400
         maxRetries: Math.min(Math.max(parseInt(core.getInput('max-retries') || '2', 10) || 0, 0), 5),
         autoCommit: booleanInput('auto-commit', false, 'not committing tests to the PR branch'),
+        failOnTestFailure: booleanInput('fail-on-test-failure', true, 'failed tests fail the check'),
         sendPageSnapshot: booleanInput('page-snapshot', false, 'not sending page snapshots'),
         greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
         mode,
@@ -35007,6 +35008,7 @@ const results_uploader_1 = __nccwpck_require__(6444);
 const bootstrap_runner_1 = __nccwpck_require__(7628);
 const safe_paths_1 = __nccwpck_require__(3);
 const test_runner_1 = __nccwpck_require__(7194);
+const outcome_1 = __nccwpck_require__(4671);
 async function run() {
     try {
         const config = (0, config_1.getConfig)();
@@ -35138,10 +35140,7 @@ async function run() {
         core.setOutput('tests-generated', String(report.testsGenerated));
         core.setOutput('tests-passed', String(report.testsPassed));
         core.setOutput('tests-failed', String(report.testsFailed));
-        if (report.testsFailed > 0) {
-            core.warning(`${report.testsFailed} test(s) failed${config.maxRetries > 0 ? ' after self-healing attempts' : ''}`);
-        }
-        core.info(`🌱 GreenCI complete: ${report.testsPassed}/${report.testsGenerated} tests passing`);
+        (0, outcome_1.concludeRun)(report, config);
     }
     catch (error) {
         if (error instanceof Error) {
@@ -35630,6 +35629,69 @@ async function convertFile(filePath, cypressDir, targetDir, config, llmClient, w
             notes: [`Conversion error: ${errorMsg}`],
             confidence: 0,
         };
+    }
+}
+
+
+/***/ }),
+
+/***/ 4671:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.concludeRun = concludeRun;
+const core = __importStar(__nccwpck_require__(7484));
+/**
+ * How a PR run ends. A run whose generated tests fail used to finish green:
+ * the PR comment said 0 of 1 passing while the check said success, so nobody
+ * who trusts the check looked. Failed tests now fail the check, unless the
+ * workflow asks for report-only with `fail-on-test-failure: false`.
+ */
+function concludeRun(report, config) {
+    core.info(`🌱 GreenCI complete: ${report.testsPassed}/${report.testsGenerated} tests passing`);
+    if (report.testsFailed === 0)
+        return;
+    const message = `${report.testsFailed} test(s) failed${config.maxRetries > 0 ? ' after self-healing attempts' : ''}`;
+    if (config.failOnTestFailure === false) {
+        core.warning(`${message} (fail-on-test-failure is false, so the check stays green)`);
+    }
+    else {
+        core.setFailed(`${message}. See the GreenCI report on the pull request. Set fail-on-test-failure: false to report without failing the check.`);
     }
 }
 

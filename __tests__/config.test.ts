@@ -30,6 +30,7 @@ describe('getConfig', () => {
         // What the runner supplies from action.yml when the workflow sets neither.
         'auto-commit': 'true',
         'page-snapshot': 'true',
+        'fail-on-test-failure': 'true',
         'greenci-api-url': '',
         'mode': '',
         'cypress-dir': '',
@@ -94,15 +95,23 @@ describe('getConfig', () => {
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('page-snapshot was passed an empty value'));
   });
 
+  // GC-109: failing is the safe reading of a value we cannot read.
+  it.each([['false', false], ['False', false], ['true', true], ['', true], ['nope', true]])('reads fail-on-test-failure %p as %p', (value, expected) => {
+    mockGetInput.mockImplementation(
+      (name: string) => ({ 'api-key': 'k', 'fail-on-test-failure': value, 'auto-commit': 'true', 'page-snapshot': 'true' } as Record<string, string>)[name] ?? '',
+    );
+    expect(getConfig().failOnTestFailure).toBe(expected);
+  });
+
   // GC-103: 'True' used to parse as false without a word, while page-snapshot accepted it.
   it.each(['true', 'True', 'TRUE', ' true '])('reads auto-commit %p as on', (value) => {
-    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'auto-commit': value, 'page-snapshot': 'true' } as Record<string, string>)[name] ?? '');
+    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'auto-commit': value, 'page-snapshot': 'true', 'fail-on-test-failure': 'true' } as Record<string, string>)[name] ?? '');
     expect(getConfig().autoCommit).toBe(true);
     expect(core.warning).not.toHaveBeenCalled();
   });
 
   it.each(['yes', '1', ''])('does not commit, with a warning, when auto-commit is %p', (value) => {
-    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'auto-commit': value, 'page-snapshot': 'true' } as Record<string, string>)[name] ?? '');
+    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'auto-commit': value, 'page-snapshot': 'true', 'fail-on-test-failure': 'true' } as Record<string, string>)[name] ?? '');
     expect(getConfig().autoCommit).toBe(false);
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('auto-commit'));
   });

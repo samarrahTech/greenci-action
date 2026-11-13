@@ -13,6 +13,7 @@ import { uploadResults } from './results-uploader';
 import { runBootstrap } from './bootstrap-runner';
 import { resolveTestPath } from './safe-paths';
 import { removeBaseUrlOverride } from './test-runner';
+import { concludeRun } from './outcome';
 
 async function run(): Promise<void> {
   try {
@@ -164,11 +165,7 @@ async function run(): Promise<void> {
     core.setOutput('tests-passed', String(report.testsPassed));
     core.setOutput('tests-failed', String(report.testsFailed));
 
-    if (report.testsFailed > 0) {
-      core.warning(`${report.testsFailed} test(s) failed${config.maxRetries > 0 ? ' after self-healing attempts' : ''}`);
-    }
-
-    core.info(`🌱 GreenCI complete: ${report.testsPassed}/${report.testsGenerated} tests passing`);
+    concludeRun(report, config);
   } catch (error) {
     if (error instanceof Error) {
       core.setFailed(error.message);
