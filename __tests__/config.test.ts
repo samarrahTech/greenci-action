@@ -27,7 +27,9 @@ describe('getConfig', () => {
         'test-dir': '',
         'base-url': '',
         'max-retries': '',
-        'auto-commit': '',
+        // What the runner supplies from action.yml when the workflow sets neither.
+        'auto-commit': 'true',
+        'page-snapshot': 'true',
         'greenci-api-url': '',
         'mode': '',
         'cypress-dir': '',
@@ -81,6 +83,28 @@ describe('getConfig', () => {
   it('accepts any YAML casing for page-snapshot', () => {
     mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'page-snapshot': 'False' } as Record<string, string>)[name] ?? '');
     expect(getConfig().sendPageSnapshot).toBe(false);
+  });
+
+  // GC-102: `page-snapshot: ${{ vars.X }}` with X undefined arrives as ''.
+  // The runner only passes '' when the workflow did (action.yml has a
+  // default), and it used to mean "send snapshots".
+  it('turns page snapshots off, with a warning, on an explicitly empty page-snapshot', () => {
+    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'page-snapshot': '', 'auto-commit': 'true' } as Record<string, string>)[name] ?? '');
+    expect(getConfig().sendPageSnapshot).toBe(false);
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('page-snapshot was passed an empty value'));
+  });
+
+  // GC-103: 'True' used to parse as false without a word, while page-snapshot accepted it.
+  it.each(['true', 'True', 'TRUE', ' true '])('reads auto-commit %p as on', (value) => {
+    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'auto-commit': value, 'page-snapshot': 'true' } as Record<string, string>)[name] ?? '');
+    expect(getConfig().autoCommit).toBe(true);
+    expect(core.warning).not.toHaveBeenCalled();
+  });
+
+  it.each(['yes', '1', ''])('does not commit, with a warning, when auto-commit is %p', (value) => {
+    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'auto-commit': value, 'page-snapshot': 'true' } as Record<string, string>)[name] ?? '');
+    expect(getConfig().autoCommit).toBe(false);
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('auto-commit'));
   });
 
   it('turns page snapshots off, with a warning, on an unreadable page-snapshot value', () => {

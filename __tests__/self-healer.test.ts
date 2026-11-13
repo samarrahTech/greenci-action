@@ -323,3 +323,77 @@ describe('healFailedTests — auth classification uses the credentials', () => {
     });
   });
 });
+
+// GC-111: on greenci-landing the app address was wrong, every spec died in
+// page.goto with ERR_CONNECTION_REFUSED, and two heal calls per spec were
+// spent rewriting a test that had nothing wrong with it.
+describe('app unreachable', () => {
+  const { unreachableOrigin } = jest.requireActual('../src/self-healer');
+  const refused =
+    'Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/changelog\nCall log:\n  - navigating to "http://localhost:3000/changelog"';
+  const test: GeneratedTest = {
+    filename: 'changelog.spec.ts',
+    code: "await page.goto('/changelog');",
+    description: 'd',
+  } as GeneratedTest;
+  const failed = (error: string): TestResult => ({ filename: 'changelog.spec.ts', passed: false, duration: 1, error });
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('does not call the healer and names the address that did not answer', async () => {
+    const healTest = jest.fn();
+    // config.baseUrl is a different port on purpose: the report must name the
+    // address the navigation used, not the input's default.
+    const config = { ...mockConfig, baseUrl: 'http://localhost:9999' };
+
+    const outcome = await healFailedTests([{ test, result: failed(refused) }], mockContext, config, { healTest } as unknown as ILLMClient, '/work');
+
+    expect(healTest).not.toHaveBeenCalled();
+    expect(outcome.healed).toHaveLength(0);
+    expect(outcome.results[0].passed).toBe(false);
+    expect(outcome.results[0].error).toContain('Nothing answered at http://localhost:3000,');
+    expect(outcome.results[0].error).not.toContain('9999');
+    expect(outcome.results[0].error).toContain('ERR_CONNECTION_REFUSED');
+  });
+
+  it('stops healing when the app goes away on a rerun', async () => {
+    const healTest = jest.fn().mockResolvedValue({ ...test, code: "await page.goto('/changelog'); // fixed" });
+    (testRunner.runTests as jest.Mock).mockResolvedValue([failed(refused)]);
+
+    const outcome = await healFailedTests(
+      [{ test, result: failed('Error: expect(locator).toBeVisible() failed') }],
+      mockContext,
+      mockConfig,
+      { healTest } as unknown as ILLMClient,
+      '/work',
+    );
+
+    expect(healTest).toHaveBeenCalledTimes(1);
+    expect(outcome.results[0].error).toContain('Nothing answered at http://localhost:3000');
+  });
+
+  it.each([
+    ['connection refused on goto', refused, '', 'http://localhost:3000'],
+    ['DNS failure on goto', 'Error: page.goto: net::ERR_NAME_NOT_RESOLVED at https://nope.example/x', '', 'https://nope.example'],
+    [
+      'Firefox wording, URL from the call log',
+      'Error: page.goto: NS_ERROR_CONNECTION_REFUSED\nCall log:\n  - navigating to "http://localhost:3000/", waiting until "load"',
+      '',
+      'http://localhost:3000',
+    ],
+    ['a locator timeout', 'Error: expect(locator).toBeVisible() failed', '', null],
+    ['a refused request that was not the navigation', 'Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:4000', '', null],
+    [
+      'a code-frame goto next to an unrelated network error',
+      "  5 |   await page.goto('/');\nError: page.reload: net::ERR_CONNECTION_REFUSED at http://localhost:3000/",
+      '',
+      null,
+    ],
+    ['an HTTP error page', 'Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at http://localhost:3000/x', '', null],
+    ['another test in the file reached a page', `${refused}\n\nError: expect(locator).toBeVisible() failed`, '', null],
+    ['the spec hard-codes that address itself', refused, "await page.goto('http://localhost:3000/changelog');", null],
+    ['no error text', undefined, '', null],
+  ])('%s', (_name, error, code, expected) => {
+    expect(unreachableOrigin(error, code)).toBe(expected);
+  });
+});

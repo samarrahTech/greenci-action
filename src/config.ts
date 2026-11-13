@@ -1,16 +1,23 @@
 import * as core from '@actions/core';
 import { ActionConfig, LLMProvider, OperationMode } from './types';
 
-// An unreadable value turns the snapshot off: a typo should err on the side
-// of sending less page content.
-function pageSnapshotInput(): boolean {
-  if (!core.getInput('page-snapshot')) return true;
-  try {
-    return core.getBooleanInput('page-snapshot');
-  } catch {
-    core.warning("page-snapshot must be 'true' or 'false' — not sending page snapshots");
-    return false;
-  }
+/**
+ * Boolean action input, any YAML casing. Both failure modes take the caller's
+ * safe value instead of a default that does more: an unreadable value (a
+ * typo), and an empty one. Empty is not "unset" here: action.yml gives these
+ * inputs a default, so the runner only hands over '' when the workflow passed
+ * it, typically a `vars.X` expression with X not defined.
+ */
+function booleanInput(name: string, safe: boolean, whenSafe: string): boolean {
+  const raw = core.getInput(name).trim().toLowerCase();
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  core.warning(
+    raw === ''
+      ? `${name} was passed an empty value (an undefined variable?) — ${whenSafe}`
+      : `${name} must be 'true' or 'false' — ${whenSafe}`,
+  );
+  return safe;
 }
 
 export function getConfig(): ActionConfig {
@@ -55,8 +62,8 @@ export function getConfig(): ActionConfig {
     baseUrlExplicit: core.getInput('base-url') !== '',
     // The heal API caps attempt at 5; clamp so extra retries don't 400
     maxRetries: Math.min(Math.max(parseInt(core.getInput('max-retries') || '2', 10) || 0, 0), 5),
-    autoCommit: (core.getInput('auto-commit') || 'true') === 'true',
-    sendPageSnapshot: pageSnapshotInput(),
+    autoCommit: booleanInput('auto-commit', false, 'not committing tests to the PR branch'),
+    sendPageSnapshot: booleanInput('page-snapshot', false, 'not sending page snapshots'),
     greenCIApiUrl: core.getInput('greenci-api-url') || 'https://api.greenci.ai',
     mode,
     cypressDir: core.getInput('cypress-dir') || 'cypress/e2e',

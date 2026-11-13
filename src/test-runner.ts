@@ -188,6 +188,9 @@ function findPlaywrightConfig(workDir: string): string | null {
   return PLAYWRIGHT_CONFIG_FILES.find((f) => fs.existsSync(path.join(workDir, f))) ?? null;
 }
 
+// One run, one process: say it once, not once per spec file.
+let overrideAnnounced = false;
+
 /** Run-only files: written next to the repo's config, removed when the run ends, never committed. */
 export const BASE_URL_OVERRIDE_CONFIGS = ['playwright.greenci.config.ts', 'playwright.greenci.config.mjs'];
 
@@ -269,6 +272,10 @@ export function ensureBaseUrlOverride(workDir: string, config: ActionConfig): st
     if (fs.readFileSync(path.join(workDir, configFile), 'utf-8').includes(GENERATED_CONFIG_MARKER)) return null;
     const name = overrideConfigName(configFile);
     fs.writeFileSync(path.join(workDir, name), baseUrlOverrideSource(configFile), 'utf-8');
+    if (!overrideAnnounced) {
+      overrideAnnounced = true;
+      core.info(`⚙️ base-url is set: tests use ${config.baseUrl} with the rest of ${configFile} unchanged`);
+    }
     return name;
   } catch (err) {
     core.warning(
