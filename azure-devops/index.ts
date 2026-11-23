@@ -8,12 +8,19 @@
 import * as tl from 'azure-pipelines-task-lib/task';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync, execFileSync } from 'child_process';
+import { execFileSync } from 'child_process';
 // Shared with the GitHub action. Both modules depend only on Node built-ins,
 // so importing them does not pull in @actions/*.
 import { buildTestEnv } from '../src/test-env';
-import { specFilter, findPlaywrightConfig, writeBaseUrlOverride, removeBaseUrlOverride } from '../src/playwright-config';
+import {
+  specFilter,
+  findPlaywrightConfig,
+  writeBaseUrlOverride,
+  removeBaseUrlOverride,
+} from '../src/playwright-config';
 import { resolveTestPath, assertSafeToWrite } from '../src/safe-paths';
+import { removePersistedCredentials } from '../src/git-credentials';
+import { commitDestination, pushFilesViaApi } from '../src/azure-commit';
 
 // ─── Types (mirrored from ../src/types.ts to avoid import issues with @actions deps) ───
 
@@ -115,7 +122,11 @@ function isPullRequest(): boolean {
   return getAzDoEnv().buildReason === 'PullRequest' && !!getAzDoEnv().prId;
 }
 
-async function azDoFetch(url: string, accessToken: string, options: RequestInit = {}): Promise<Response> {
+async function azDoFetch(
+  url: string,
+  accessToken: string,
+  options: RequestInit = {}
+): Promise<Response> {
   return fetch(url, {
     ...options,
     headers: {
@@ -187,8 +198,10 @@ function mapChangeType(changeType: string): ChangedFile['status'] {
 
 function getGitDiffFiles(): ChangedFile[] {
   try {
-    const targetBranch = process.env['SYSTEM_PULLREQUEST_TARGETBRANCH']?.replace('refs/heads/', '') || 'main';
-    const output = execSync(`git diff --name-status origin/${targetBranch}...HEAD`, {
+    const targetBranch =
+      process.env['SYSTEM_PULLREQUEST_TARGETBRANCH']?.replace('refs/heads/', '') || 'main';
+    // Arguments, not a shell string: a branch name may contain `$(...)`.
+    const output = execFileSync('git', ['diff', '--name-status', `origin/${targetBranch}...HEAD`], {
       encoding: 'utf-8',
     });
 
@@ -224,9 +237,18 @@ function getGitDiffFiles(): ChangedFile[] {
 function filterTestableFiles(files: ChangedFile[]): ChangedFile[] {
   const testableExtensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte'];
   const ignorePaths = [
-    'node_modules/', 'dist/', 'build/', '.github/', '__tests__/',
-    '*.test.', '*.spec.', '.eslint', '.prettier',
-    'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+    'node_modules/',
+    'dist/',
+    'build/',
+    '.github/',
+    '__tests__/',
+    '*.test.',
+    '*.spec.',
+    '.eslint',
+    '.prettier',
+    'package-lock.json',
+    'yarn.lock',
+    'pnpm-lock.yaml',
   ];
 
   return files.filter((file) => {
@@ -256,10 +278,12 @@ function buildChangeContext(files: ChangedFile[]): ChangeContext {
     for (const pattern of routePatterns) {
       const match = file.filename.match(pattern);
       if (match) {
-        let routePath = '/' + (match[1] || '')
-          .replace(/\/page$/, '')
-          .replace(/\/index$/, '')
-          .replace(/\[(.+?)\]/g, ':$1');
+        let routePath =
+          '/' +
+          (match[1] || '')
+            .replace(/\/page$/, '')
+            .replace(/\/index$/, '')
+            .replace(/\[(.+?)\]/g, ':$1');
         routes.push({ path: routePath, file: file.filename, isNew: file.status === 'added' });
         break;
       }
@@ -289,7 +313,10 @@ function buildChangeContext(files: ChangedFile[]): ChangeContext {
 
     // Components
     if (/components?\//i.test(file.filename) || /src\/.*\.(tsx|jsx)$/.test(file.filename)) {
-      if (!apiPatterns.some((p) => p.test(file.filename)) && !/page\.(tsx?|jsx?)$/.test(file.filename)) {
+      if (
+        !apiPatterns.some((p) => p.test(file.filename)) &&
+        !/page\.(tsx?|jsx?)$/.test(file.filename)
+      ) {
         const basename = file.filename.split('/').pop() || '';
         const name = basename.replace(/\.(tsx?|jsx?)$/, '');
         components.push({
@@ -311,7 +338,10 @@ function buildChangeContext(files: ChangedFile[]): ChangeContext {
 
 // ─── GreenCI API client ───
 
-async function callGenerateAPI(context: ChangeContext, config: TaskConfig): Promise<GeneratedTest[]> {
+async function callGenerateAPI(
+  context: ChangeContext,
+  config: TaskConfig
+): Promise<GeneratedTest[]> {
   console.log(`Calling GreenCI API at ${config.greenCIApiUrl}/v1/generate`);
 
   try {
@@ -469,6 +499,12 @@ test.describe('Smoke Tests', () => {
  * symlink. A test that fails the check is dropped here, so it is neither run
  * nor healed nor committed.
  */
+/**
+ * The code the task last wrote for each test file, by path from the repo
+ * root. Auto-commit sends this, never the file as a test may have left it.
+ */
+const writtenCode = new Map<string, string>();
+
 function writeTests(tests: GeneratedTest[], config: TaskConfig, workDir: string): GeneratedTest[] {
   const written: GeneratedTest[] = [];
   for (const test of tests) {
@@ -483,6 +519,7 @@ function writeTests(tests: GeneratedTest[], config: TaskConfig, workDir: string)
     fs.mkdirSync(path.dirname(absolute), { recursive: true });
     fs.writeFileSync(absolute, test.code, 'utf-8');
     const filename = path.relative(workDir, absolute).split(path.sep).join('/');
+    writtenCode.set(filename, test.code);
     console.log(`Wrote test: ${filename}`);
     written.push({ ...test, filename });
   }
@@ -507,11 +544,14 @@ function baseUrlOverrideConfig(config: TaskConfig, workDir: string): string | nu
   if (!configFile) return null;
   try {
     overrideConfig = writeBaseUrlOverride(workDir, configFile);
-    if (overrideConfig) console.log(`baseUrl is set: tests use ${config.baseUrl} with the rest of ${configFile} unchanged`);
+    if (overrideConfig)
+      console.log(
+        `baseUrl is set: tests use ${config.baseUrl} with the rest of ${configFile} unchanged`
+      );
   } catch (err) {
     tl.warning(
       `Could not apply baseUrl over ${configFile} (${err instanceof Error ? err.message : String(err)}); ` +
-        `tests run against the baseURL in ${configFile}`,
+        `tests run against the baseURL in ${configFile}`
     );
   }
   return overrideConfig;
@@ -534,6 +574,8 @@ function runPlaywrightTest(testFile: string, config: TaskConfig, workDir: string
       // Model-written code runs here. It gets the pipeline environment minus
       // every credential the task holds (job token, secret variables, service
       // connections, the task's own inputs). Never spread process.env here.
+      // A job token persisted in .git/config is removed by run() before the
+      // first test and restored at the end of the task.
       env: buildTestEnv(process.env, { BASE_URL: config.baseUrl, CI: 'true' }),
       timeout: 120_000,
     });
@@ -579,7 +621,11 @@ async function healFailedTests(
         context,
         config
       );
-      const [placed] = writeTests([{ ...healedTest, filename: currentTest.filename }], config, workDir);
+      const [placed] = writeTests(
+        [{ ...healedTest, filename: currentTest.filename }],
+        config,
+        workDir
+      );
       if (!placed) break;
       const healedResult = runPlaywrightTest(path.join(workDir, placed.filename), config, workDir);
 
@@ -665,21 +711,56 @@ async function postPRComment(report: RunReport): Promise<void> {
 
 // ─── Git commit (for auto-commit) ───
 
-function commitPassingTests(testFiles: string[], workDir: string): string[] {
+async function commitPassingTests(testFiles: string[], workDir: string): Promise<string[]> {
   if (testFiles.length === 0) return [];
 
+  // Through the REST API, not `git push`: generated tests have run in this
+  // repository, and a git command would take its remote, refspec, hooks and
+  // index from state they could write. For the same reason the content comes
+  // from memory (what the task wrote), not from the files as they are now.
+  // See src/azure-commit.ts.
+  const { accessToken, collectionUri, project, repoId } = getAzDoEnv();
+  if (!accessToken) {
+    tl.warning(
+      'Auto-commit skipped: SYSTEM_ACCESSTOKEN is not mapped into the task. Add `env: SYSTEM_ACCESSTOKEN: $(System.AccessToken)` to the step.'
+    );
+    return [];
+  }
+  const destination = commitDestination(process.env);
+  if ('skip' in destination) {
+    tl.warning(`Auto-commit skipped: ${destination.skip}.`);
+    return [];
+  }
+  if (!collectionUri || !project || !repoId) {
+    tl.warning(
+      'Auto-commit skipped: the pipeline did not provide the collection, project or repository id.'
+    );
+    return [];
+  }
+
+  const files = testFiles.flatMap((absolute) => {
+    const relative = path.relative(workDir, absolute).split(path.sep).join('/');
+    const code = writtenCode.get(relative);
+    return code === undefined ? [] : [{ path: relative, content: code }];
+  });
+
   try {
-    // The filenames come from the model's response: pass them as arguments,
-    // never through a shell.
-    for (const f of testFiles) {
-      execFileSync('git', ['add', '--', f], { cwd: workDir });
-    }
-    execSync('git commit -m "🤖 GreenCI: Add AI-generated E2E tests"', { cwd: workDir });
-    execSync('git push', { cwd: workDir });
-    console.log(`📝 Committed and pushed ${testFiles.length} test file(s)`);
-    return testFiles;
+    const outcome = await pushFilesViaApi(
+      { collectionUri, project, repoId, ...destination },
+      files,
+      (url, init) => azDoFetch(url, accessToken, { ...init, signal: AbortSignal.timeout(30_000) })
+    );
+    if (outcome.skipped) console.log(`📝 Nothing committed: ${outcome.skipped}.`);
+    else
+      console.log(
+        `📝 Committed ${outcome.committed.length} test file(s) to ${destination.branchRef}`
+      );
+    return outcome.committed.map((relative) => path.join(workDir, relative));
   } catch (error) {
-    tl.warning(`Auto-commit failed: ${error}`);
+    tl.warning(
+      `Auto-commit failed: ${error instanceof Error ? error.message : String(error)}. ` +
+        'HTTP 403 means the Build Service account lacks Contribute on the repository; a refused push can also mean the branch moved while the tests ran.'
+    );
     return [];
   }
 }
@@ -687,6 +768,7 @@ function commitPassingTests(testFiles: string[], workDir: string): string[] {
 // ─── Main ───
 
 async function run(): Promise<void> {
+  let restoreCredentials: () => void = () => {};
   try {
     const config = getTaskConfig();
     const workDir = process.env['BUILD_SOURCESDIRECTORY'] || process.cwd();
@@ -729,6 +811,12 @@ async function run(): Promise<void> {
       return;
     }
 
+    // From here on model-written code runs in the repository. A job token
+    // persisted in .git/config (checkout with persistCredentials: true) is
+    // taken out first and put back when the task ends. The task itself never
+    // needs it. A task the agent kills mid-run cannot put it back.
+    restoreCredentials = removePersistedCredentials(workDir, (message) => tl.warning(message));
+
     // 4. Write and run tests
     const writtenTests = writeTests(generatedTests, config, workDir);
     console.log('🏃 Running tests...');
@@ -770,10 +858,8 @@ async function run(): Promise<void> {
 
     // 7. Auto-commit passing tests
     if (config.autoCommit && totalPassed > 0) {
-      const passingFiles = allResults
-        .filter((r) => r.passed)
-        .map((r) => r.filename);
-      report.committedFiles = commitPassingTests(passingFiles, workDir);
+      const passingFiles = allResults.filter((r) => r.passed).map((r) => r.filename);
+      report.committedFiles = await commitPassingTests(passingFiles, workDir);
     }
 
     // 8. Post PR comment
@@ -790,12 +876,15 @@ async function run(): Promise<void> {
       tl.warning(`${report.testsFailed} test(s) failed after self-healing attempts`);
     }
 
-    console.log(`🌱 GreenCI complete: ${report.testsPassed}/${report.testsGenerated} tests passing`);
+    console.log(
+      `🌱 GreenCI complete: ${report.testsPassed}/${report.testsGenerated} tests passing`
+    );
   } catch (error) {
     tl.setResult(tl.TaskResult.Failed, error instanceof Error ? error.message : String(error));
   } finally {
     // The run-only override config must not be left for later pipeline steps.
     removeBaseUrlOverride(process.env['BUILD_SOURCESDIRECTORY'] || process.cwd());
+    restoreCredentials();
   }
 }
 

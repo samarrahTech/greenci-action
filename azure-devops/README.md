@@ -42,7 +42,7 @@ pool:
 
 steps:
   - checkout: self
-    persistCredentials: true
+    persistCredentials: false
     fetchDepth: 0
 
   - task: NodeTool@0
@@ -147,8 +147,18 @@ GreenCI uses the Azure DevOps API to fetch PR file changes. If the build isn't t
 
 ### Auto-commit not working
 
-- `persistCredentials: true` must be set on the checkout step
-- The Build Service account needs write access to the repository
+- `SYSTEM_ACCESSTOKEN: $(System.AccessToken)` must be passed to the task. Without it auto-commit is skipped with a warning
+- The Build Service account needs Contribute permission on the repository
+- Since 0.1.2 the commit is made through the Azure DevOps REST API, not `git push`. It goes to the pull request's source branch (or the built branch), contains only the passing tests as the task wrote them, and does not move your checkout
+- If the branch moved while the tests ran, the push is refused and nothing is committed; the next build commits
+- The commit message ends in `[skip ci]`, and a build of an auto-commit never commits again
+- Azure Repos only; a pipeline that builds a GitHub or Bitbucket repository skips auto-commit
+- Pull requests from forks are skipped: the job token cannot write to the fork
+- `persistCredentials: true` is not needed and is best left off: it stores the job token in `.git/config`. If another step needs it, the task removes the stored token before the first generated test runs and puts it back when the task ends
+
+### What generated tests can reach
+
+Generated tests are code written by a model and run on your agent. The task removes the job token, secret variables and its own inputs from their environment, and takes a persisted token out of `.git/config` while they run. It is not a sandbox: the tests can still read and change files in the workspace, and with `persistCredentials: true` a process a test left running could read the token once it is restored. Give the job only the permissions it needs.
 
 ## Full Example
 

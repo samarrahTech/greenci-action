@@ -30,8 +30,11 @@ stages:
         displayName: 'AI E2E Test Generation'
         steps:
           # 1. Checkout code
+          # persistCredentials stays false (the default): it would leave the job
+          # token in .git/config, where every later step can read it. The task
+          # commits through the REST API with SYSTEM_ACCESSTOKEN instead.
           - checkout: self
-            persistCredentials: true
+            persistCredentials: false
             fetchDepth: 0  # Full history for git diff
 
           # 2. Setup Node.js
@@ -108,7 +111,7 @@ stages:
 #
 # steps:
 #   - checkout: self
-#     persistCredentials: true
+#     persistCredentials: false
 #     fetchDepth: 0
 #
 #   - task: NodeTool@0
