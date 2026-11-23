@@ -36339,16 +36339,42 @@ function removeBaseUrlOverride(workDir) {
         }
     }
 }
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /**
  * Playwright treats a file argument as a regular expression matched against
  * each spec's absolute path. A bare `add.spec.ts` therefore also ran
  * `expenses-add.spec.ts`, any `add.spec.ts` in another folder, and anything
  * the unescaped dots happened to match, and their failures were reported
- * against this spec. Match this one file: its path from the repo root,
- * escaped, anchored at the end.
+ * against this spec.
+ *
+ * Match this one file by its whole path, anchored at both ends. Anchoring
+ * only the end still matched `packages/app/e2e/add.spec.ts` for
+ * `e2e/add.spec.ts` in a monorepo.
+ *
+ * Playwright matches against the resolved path: with a symlinked workspace it
+ * sees the real directory, whatever the working directory says (checked with
+ * a real run). Both spellings of the root are accepted so neither can end in
+ * "No tests found".
+ *
+ * Not covered: Playwright compiles the filter case-insensitively, so on a
+ * case-sensitive filesystem `Add.spec.ts` beside `add.spec.ts` still matches.
+ *
+ * On Windows the paths Playwright matches use backslashes, which this pattern
+ * does not model, so the end-anchored form is kept there.
  */
 function specFilter(workDir, filePath) {
-    return fileFilter(path.relative(workDir, filePath).split(path.sep).join('/'));
+    const relative = path.relative(workDir, filePath).split(path.sep).join('/');
+    if (path.sep !== '/')
+        return fileFilter(relative);
+    const roots = new Set([path.resolve(workDir)]);
+    try {
+        roots.add(fs.realpathSync(workDir));
+    }
+    catch {
+        // The directory is not there to resolve; the plain path is all there is.
+    }
+    const root = [...roots].map((r) => escapeRegExp(r.replace(/\/+$/, ''))).join('|');
+    return `^(?:${root})/${escapeRegExp(relative)}$`;
 }
 /**
  * Filter for a file by the end of its path: `e2e/add.spec.ts`, or a bare
@@ -36356,7 +36382,7 @@ function specFilter(workDir, filePath) {
  * `auth.setup.ts` from also running `oauth.setup.ts`.
  */
 function fileFilter(pathSuffix) {
-    return `/${pathSuffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+    return `/${escapeRegExp(pathSuffix)}$`;
 }
 
 
