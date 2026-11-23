@@ -12,7 +12,7 @@ import { execSync, execFileSync } from 'child_process';
 // Shared with the GitHub action. Both modules depend only on Node built-ins,
 // so importing them does not pull in @actions/*.
 import { buildTestEnv } from '../src/test-env';
-import { fileFilter, findPlaywrightConfig, writeBaseUrlOverride, removeBaseUrlOverride } from '../src/playwright-config';
+import { specFilter, findPlaywrightConfig, writeBaseUrlOverride, removeBaseUrlOverride } from '../src/playwright-config';
 import { resolveTestPath, assertSafeToWrite } from '../src/safe-paths';
 
 // ─── Types (mirrored from ../src/types.ts to avoid import issues with @actions deps) ───
@@ -520,9 +520,11 @@ function baseUrlOverrideConfig(config: TaskConfig, workDir: string): string | nu
 function runPlaywrightTest(testFile: string, config: TaskConfig, workDir: string): TestResult {
   const startTime = Date.now();
   try {
-    // Playwright reads the file argument as a regular expression: escape the
-    // path and anchor it, or `add.spec.ts` also runs `expenses-add.spec.ts`.
-    const filter = fileFilter(path.relative(workDir, testFile).split(path.sep).join('/'));
+    // Playwright reads the file argument as a regular expression. specFilter
+    // escapes the path and anchors it on the workspace root and the path end,
+    // or `add.spec.ts` also runs `expenses-add.spec.ts` and the same-named
+    // spec of other packages.
+    const filter = specFilter(workDir, testFile);
     const args = ['playwright', 'test', filter, '--reporter=json'];
     const override = baseUrlOverrideConfig(config, workDir);
     if (override) args.push(`--config=${override}`);

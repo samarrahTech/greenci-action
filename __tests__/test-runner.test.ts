@@ -195,7 +195,12 @@ describe('runTests', () => {
     await runTests([testFile], mockConfig, '/work');
     expect(exec.exec).toHaveBeenCalledWith(
       'npx',
-      ['playwright', 'test', '/e2e/login\\.spec\\.ts$', '--reporter=line'],
+      [
+        'playwright',
+        'test',
+        expect.stringMatching(/^\^\(\?:\/work(\|[^)]+)?\)\/e2e\/login\\\.spec\\\.ts\$$/),
+        '--reporter=line',
+      ],
       expect.objectContaining({ cwd: '/work', ignoreReturnCode: true })
     );
   });
@@ -971,13 +976,49 @@ describe('base-url override for repos with their own Playwright config', () => {
 describe('specFilter', () => {
   const { specFilter } = jest.requireActual('../src/test-runner');
 
-  it('matches only this spec: path from the repo root, escaped, anchored at the end', () => {
+  it('matches only this spec: whole path, escaped, anchored at both ends', () => {
     const filter = new RegExp(specFilter('/work', '/work/e2e/add.spec.ts'));
     expect(filter.test('/work/e2e/add.spec.ts')).toBe(true);
     expect(filter.test('/work/e2e/expenses-add.spec.ts')).toBe(false);
     expect(filter.test('/work/e2e/sub/add.spec.ts')).toBe(false);
     expect(filter.test('/work/e2e/addXspec.ts')).toBe(false);
     expect(filter.test('/work/e2e/add.spec.ts.bak')).toBe(false);
+  });
+
+  // GC-128: anchored only at the end, the filter for e2e/add.spec.ts also ran
+  // the same-named spec of every package in a monorepo.
+  it('does not match the same path deeper in the repo', () => {
+    const filter = new RegExp(specFilter('/work', '/work/e2e/add.spec.ts'));
+    expect(filter.test('/work/packages/app/e2e/add.spec.ts')).toBe(false);
+    expect(filter.test('/other/work/e2e/add.spec.ts')).toBe(false);
+  });
+
+  it('accepts a trailing slash on the workspace path', () => {
+    expect(
+      new RegExp(specFilter('/work/', '/work/e2e/add.spec.ts')).test('/work/e2e/add.spec.ts')
+    ).toBe(true);
+  });
+
+  // Playwright matches the resolved path, so a symlinked workspace is seen
+  // under its real directory. Both spellings must match or the run ends in
+  // "No tests found".
+  it('matches a symlinked workspace under its real path and its link path', () => {
+    const fsReal = jest.requireActual('fs');
+    const osReal = jest.requireActual('os');
+    const pathReal = jest.requireActual('path');
+    const base = fsReal.realpathSync(fsReal.mkdtempSync(pathReal.join(osReal.tmpdir(), 'gc128-')));
+    const real = pathReal.join(base, 'real');
+    const link = pathReal.join(base, 'link');
+    fsReal.mkdirSync(pathReal.join(real, 'e2e'), { recursive: true });
+    fsReal.symlinkSync(real, link);
+    try {
+      const filter = new RegExp(specFilter(link, pathReal.join(link, 'e2e', 'add.spec.ts')));
+      expect(filter.test(`${real}/e2e/add.spec.ts`)).toBe(true);
+      expect(filter.test(`${link}/e2e/add.spec.ts`)).toBe(true);
+      expect(filter.test(`${real}/packages/app/e2e/add.spec.ts`)).toBe(false);
+    } finally {
+      fsReal.rmSync(base, { recursive: true, force: true });
+    }
   });
 
   // The sign-in setup runs by bare name; it must not also run oauth.setup.ts.
