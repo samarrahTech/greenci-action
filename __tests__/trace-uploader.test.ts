@@ -68,14 +68,20 @@ describe('uploadTraces', () => {
     await uploadTraces('/results', 'https://api.greenci.ai', 'mock-key', 'proj-1', 'run-1');
 
     expect(global.fetch).not.toHaveBeenCalled();
-    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('exceeds the 50MB trace limit'));
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('exceeds the 50MB trace limit')
+    );
   });
 
   it('should warn on upload failure', async () => {
     mockExistsSync.mockReturnValue(true);
     mockReaddirSync.mockReturnValue([{ name: 'trace.zip', isDirectory: () => false }]);
     mockReadFileSync.mockReturnValue(Buffer.from('data'));
-    (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500, statusText: 'Server Error' });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Server Error',
+    });
 
     await uploadTraces('/results', 'https://api.greenci.ai', 'mock-key', 'proj-1', 'run-1');
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Trace upload failed'));
@@ -101,7 +107,9 @@ describe('uploadTraces', () => {
 
     await uploadTraces('/results', 'https://api.greenci.ai', 'mock-key', 'proj-1', 'run-1', false);
 
-    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('1 Playwright trace archive(s) are still uploaded'));
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('1 Playwright trace archive(s) are still uploaded')
+    );
     expect(global.fetch).toHaveBeenCalled();
   });
 

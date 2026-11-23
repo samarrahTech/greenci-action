@@ -2,7 +2,10 @@ import { filterTestableFiles, parseFileDiff } from '../src/diff-parser';
 import { ChangedFile } from '../src/types';
 
 describe('filterTestableFiles', () => {
-  const makeFile = (filename: string, status: 'added' | 'modified' | 'removed' = 'modified'): ChangedFile => ({
+  const makeFile = (
+    filename: string,
+    status: 'added' | 'modified' | 'removed' = 'modified'
+  ): ChangedFile => ({
     filename,
     status,
     additions: 10,
@@ -98,10 +101,7 @@ describe('filterTestableFiles', () => {
   });
 
   it('should handle Vue and Svelte files', () => {
-    const files = [
-      makeFile('src/components/Modal.vue'),
-      makeFile('src/routes/Home.svelte'),
-    ];
+    const files = [makeFile('src/components/Modal.vue'), makeFile('src/routes/Home.svelte')];
     expect(filterTestableFiles(files)).toHaveLength(2);
   });
 });
@@ -155,6 +155,6 @@ describe('parseFileDiff', () => {
     const result = parseFileDiff(patch);
     expect(result.added).toHaveLength(12);
     expect(result.removed).toHaveLength(0);
-    expect(result.added[0]).toContain("import { NextResponse }");
+    expect(result.added[0]).toContain('import { NextResponse }');
   });
 });

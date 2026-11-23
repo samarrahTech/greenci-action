@@ -88,7 +88,12 @@ describe('healFailedTests', () => {
     const hollow = { ...failedTest, code: 'expect(page).toHaveURL(/.*/)' };
     const real = { ...failedTest, code: 'await expect(page.getByText("Saved")).toBeVisible()' };
     (lintAssertions as jest.Mock)
-      .mockReturnValueOnce({ ok: false, total: 1, vacuous: [], reason: 'every assertion is unfalsifiable' })
+      .mockReturnValueOnce({
+        ok: false,
+        total: 1,
+        vacuous: [],
+        reason: 'every assertion is unfalsifiable',
+      })
       .mockReturnValueOnce({ ok: true, total: 1, vacuous: [] });
     (mockLLMClient.healTest as jest.Mock).mockResolvedValueOnce(hollow).mockResolvedValueOnce(real);
     (testRunner.runTests as jest.Mock).mockResolvedValue([{ ...failedResult, passed: true }]);
@@ -103,13 +108,20 @@ describe('healFailedTests', () => {
 
     // The hollow heal never reached disk or the runner.
     expect(testRunner.writeTests).toHaveBeenCalledTimes(1);
-    expect(testRunner.writeTests).toHaveBeenCalledWith([real], '/work', mockConfig.testDir, undefined);
+    expect(testRunner.writeTests).toHaveBeenCalledWith(
+      [real],
+      '/work',
+      mockConfig.testDir,
+      undefined
+    );
     expect(testRunner.runTests).toHaveBeenCalledTimes(1);
     // The second heal request carried the rejection reason.
     const secondRequest = (mockLLMClient.healTest as jest.Mock).mock.calls[1][0];
     expect(secondRequest.attempt).toBe(2);
     expect(secondRequest.test).toBe(failedTest);
-    expect(secondRequest.error).toMatch(/GreenCI rejected the previous fix because every assertion is unfalsifiable/);
+    expect(secondRequest.error).toMatch(
+      /GreenCI rejected the previous fix because every assertion is unfalsifiable/
+    );
     expect(healed).toEqual([real]);
     expect(results[0].passed).toBe(true);
   });
@@ -117,9 +129,16 @@ describe('healFailedTests', () => {
   it('sends the healer the page each failing run reached, apart from the error (GC-092)', async () => {
     const firstPage = '- textbox "Vendor" [ref=e5]';
     const secondPage = '- spinbutton "Amount" [ref=e7]';
-    (mockLLMClient.healTest as jest.Mock).mockResolvedValue({ ...failedTest, code: 'still broken' });
+    (mockLLMClient.healTest as jest.Mock).mockResolvedValue({
+      ...failedTest,
+      code: 'still broken',
+    });
     (testRunner.runTests as jest.Mock).mockResolvedValue([
-      { ...failedResult, error: 'Timeout waiting for getByLabel(\'Amount\')', pageSnapshot: secondPage },
+      {
+        ...failedResult,
+        error: "Timeout waiting for getByLabel('Amount')",
+        pageSnapshot: secondPage,
+      },
     ]);
 
     await healFailedTests(
@@ -133,13 +152,18 @@ describe('healFailedTests', () => {
     const [first, second] = (mockLLMClient.healTest as jest.Mock).mock.calls.map((c) => c[0]);
     expect(first.error).toBe('Element not found');
     expect(first.pageSnapshot).toBe(firstPage);
-    expect(second.error).toBe('Timeout waiting for getByLabel(\'Amount\')');
+    expect(second.error).toBe("Timeout waiting for getByLabel('Amount')");
     expect(second.pageSnapshot).toBe(secondPage);
   });
 
   it('keeps the last page when a rerun broke before any page loaded', async () => {
-    (mockLLMClient.healTest as jest.Mock).mockResolvedValue({ ...failedTest, code: 'still broken' });
-    (testRunner.runTests as jest.Mock).mockResolvedValue([{ ...failedResult, error: 'SyntaxError' }]);
+    (mockLLMClient.healTest as jest.Mock).mockResolvedValue({
+      ...failedTest,
+      code: 'still broken',
+    });
+    (testRunner.runTests as jest.Mock).mockResolvedValue([
+      { ...failedResult, error: 'SyntaxError' },
+    ]);
 
     await healFailedTests(
       [{ test: failedTest, result: { ...failedResult, pageSnapshot: '- textbox "Vendor"' } }],
@@ -210,7 +234,11 @@ describe('healFailedTests', () => {
     const suspectedTest: GeneratedTest = {
       ...failedTest,
       code: failedTest.code,
-      verdict: { classification: 'app-bug-suspected', confidence: 0.9, reasoning: 'page returns 500' },
+      verdict: {
+        classification: 'app-bug-suspected',
+        confidence: 0.9,
+        reasoning: 'page returns 500',
+      },
     };
     (mockLLMClient.healTest as jest.Mock).mockResolvedValue(suspectedTest);
 
@@ -224,7 +252,11 @@ describe('healFailedTests', () => {
 
     expect(healed).toHaveLength(0);
     expect(suspectedBugs).toEqual([
-      { filename: 'e2e/failing.spec.ts', reasoning: 'page returns 500', error: 'Element not found' },
+      {
+        filename: 'e2e/failing.spec.ts',
+        reasoning: 'page returns 500',
+        error: 'Element not found',
+      },
     ]);
     // The failing result is kept, no further heal attempts, nothing written/run
     expect(results[0].passed).toBe(false);
@@ -238,7 +270,11 @@ describe('healFailedTests', () => {
     const healedTest: GeneratedTest = {
       ...failedTest,
       code: 'fixed code',
-      verdict: { classification: 'test-issue', confidence: 0.9, reasoning: 'strict mode violation' },
+      verdict: {
+        classification: 'test-issue',
+        confidence: 0.9,
+        reasoning: 'strict mode violation',
+      },
     };
     (mockLLMClient.healTest as jest.Mock).mockResolvedValue(healedTest);
     (testRunner.runTests as jest.Mock).mockResolvedValue([{ ...failedResult, passed: true }]);
@@ -261,7 +297,9 @@ describe('healFailedTests', () => {
     const result2: TestResult = { ...failedResult, filename: 'e2e/other.spec.ts' };
 
     (mockLLMClient.healTest as jest.Mock).mockResolvedValue({ ...failedTest, code: 'fixed' });
-    (testRunner.runTests as jest.Mock).mockResolvedValue([{ passed: true, filename: 'x', duration: 100 }]);
+    (testRunner.runTests as jest.Mock).mockResolvedValue([
+      { passed: true, filename: 'x', duration: 100 },
+    ]);
 
     const { healed } = await healFailedTests(
       [
@@ -286,9 +324,15 @@ describe('healFailedTests — auth classification uses the credentials', () => {
     filename: 'e2e/expenses-page-authenticated.spec.ts',
     passed: false,
     duration: 1,
-    error: "Error reading storage state from playwright/.auth/user.json:\nENOENT: no such file or directory, open 'playwright/.auth/user.json'",
+    error:
+      "Error reading storage state from playwright/.auth/user.json:\nENOENT: no such file or directory, open 'playwright/.auth/user.json'",
   };
-  const authedTest: GeneratedTest = { filename: 'e2e/expenses-page-authenticated.spec.ts', code: "test.use({ storageState: 'playwright/.auth/user.json' })", description: '', confidence: 1 };
+  const authedTest: GeneratedTest = {
+    filename: 'e2e/expenses-page-authenticated.spec.ts',
+    code: "test.use({ storageState: 'playwright/.auth/user.json' })",
+    description: '',
+    confidence: 1,
+  };
   const llm = { healTest: jest.fn() } as unknown as ILLMClient;
 
   const withEnv = async (env: Record<string, string | undefined>, fn: () => Promise<void>) => {
@@ -308,7 +352,13 @@ describe('healFailedTests — auth classification uses the credentials', () => {
 
   it('is missing-session when the secrets are absent', async () => {
     await withEnv({ TEST_USER_EMAIL: undefined, TEST_USER_PASSWORD: undefined }, async () => {
-      const out = await healFailedTests([{ test: authedTest, result: enoentResult }], mockContext, mockConfig, llm, '/work');
+      const out = await healFailedTests(
+        [{ test: authedTest, result: enoentResult }],
+        mockContext,
+        mockConfig,
+        llm,
+        '/work'
+      );
       expect(out.authBlocked).toEqual([expect.objectContaining({ kind: 'missing-session' })]);
       expect(llm.healTest).not.toHaveBeenCalled();
     });
@@ -316,7 +366,13 @@ describe('healFailedTests — auth classification uses the credentials', () => {
 
   it('is setup-not-run when the secrets are present, and still never heals', async () => {
     await withEnv({ TEST_USER_EMAIL: 'qa@example.com', TEST_USER_PASSWORD: 'pw' }, async () => {
-      const out = await healFailedTests([{ test: authedTest, result: enoentResult }], mockContext, mockConfig, llm, '/work');
+      const out = await healFailedTests(
+        [{ test: authedTest, result: enoentResult }],
+        mockContext,
+        mockConfig,
+        llm,
+        '/work'
+      );
       expect(out.authBlocked).toEqual([expect.objectContaining({ kind: 'setup-not-run' })]);
       expect(llm.healTest).not.toHaveBeenCalled();
       expect(out.healed).toEqual([]);
@@ -336,7 +392,12 @@ describe('app unreachable', () => {
     code: "await page.goto('/changelog');",
     description: 'd',
   } as GeneratedTest;
-  const failed = (error: string): TestResult => ({ filename: 'changelog.spec.ts', passed: false, duration: 1, error });
+  const failed = (error: string): TestResult => ({
+    filename: 'changelog.spec.ts',
+    passed: false,
+    duration: 1,
+    error,
+  });
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -346,7 +407,13 @@ describe('app unreachable', () => {
     // address the navigation used, not the input's default.
     const config = { ...mockConfig, baseUrl: 'http://localhost:9999' };
 
-    const outcome = await healFailedTests([{ test, result: failed(refused) }], mockContext, config, { healTest } as unknown as ILLMClient, '/work');
+    const outcome = await healFailedTests(
+      [{ test, result: failed(refused) }],
+      mockContext,
+      config,
+      { healTest } as unknown as ILLMClient,
+      '/work'
+    );
 
     expect(healTest).not.toHaveBeenCalled();
     expect(outcome.healed).toHaveLength(0);
@@ -360,7 +427,13 @@ describe('app unreachable', () => {
     const healTest = jest.fn();
     const marked = unreachableResult(failed(refused), 'http://localhost:3000');
 
-    const outcome = await healFailedTests([{ test, result: marked }], mockContext, mockConfig, { healTest } as unknown as ILLMClient, '/work');
+    const outcome = await healFailedTests(
+      [{ test, result: marked }],
+      mockContext,
+      mockConfig,
+      { healTest } as unknown as ILLMClient,
+      '/work'
+    );
 
     expect(healTest).not.toHaveBeenCalled();
     expect(outcome.results[0]).toBe(marked);
@@ -373,14 +446,22 @@ describe('app unreachable', () => {
     const healTest = jest.fn();
     const result = failed('Error: expect(locator).toBeVisible() failed');
 
-    const outcome = await healFailedTests([{ test, result }], mockContext, { ...mockConfig, maxRetries: 0 }, { healTest } as unknown as ILLMClient, '/work');
+    const outcome = await healFailedTests(
+      [{ test, result }],
+      mockContext,
+      { ...mockConfig, maxRetries: 0 },
+      { healTest } as unknown as ILLMClient,
+      '/work'
+    );
 
     expect(healTest).not.toHaveBeenCalled();
     expect(outcome.results).toEqual([result]);
   });
 
   it('stops healing when the app goes away on a rerun', async () => {
-    const healTest = jest.fn().mockResolvedValue({ ...test, code: "await page.goto('/changelog'); // fixed" });
+    const healTest = jest
+      .fn()
+      .mockResolvedValue({ ...test, code: "await page.goto('/changelog'); // fixed" });
     (testRunner.runTests as jest.Mock).mockResolvedValue([failed(refused)]);
 
     const outcome = await healFailedTests(
@@ -388,7 +469,7 @@ describe('app unreachable', () => {
       mockContext,
       mockConfig,
       { healTest } as unknown as ILLMClient,
-      '/work',
+      '/work'
     );
 
     expect(healTest).toHaveBeenCalledTimes(1);
@@ -397,7 +478,12 @@ describe('app unreachable', () => {
 
   it.each([
     ['connection refused on goto', refused, '', 'http://localhost:3000'],
-    ['DNS failure on goto', 'Error: page.goto: net::ERR_NAME_NOT_RESOLVED at https://nope.example/x', '', 'https://nope.example'],
+    [
+      'DNS failure on goto',
+      'Error: page.goto: net::ERR_NAME_NOT_RESOLVED at https://nope.example/x',
+      '',
+      'https://nope.example',
+    ],
     [
       'Firefox wording, URL from the call log',
       'Error: page.goto: NS_ERROR_CONNECTION_REFUSED\nCall log:\n  - navigating to "http://localhost:3000/", waiting until "load"',
@@ -405,16 +491,36 @@ describe('app unreachable', () => {
       'http://localhost:3000',
     ],
     ['a locator timeout', 'Error: expect(locator).toBeVisible() failed', '', null],
-    ['a refused request that was not the navigation', 'Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:4000', '', null],
+    [
+      'a refused request that was not the navigation',
+      'Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:4000',
+      '',
+      null,
+    ],
     [
       'a code-frame goto next to an unrelated network error',
       "  5 |   await page.goto('/');\nError: page.reload: net::ERR_CONNECTION_REFUSED at http://localhost:3000/",
       '',
       null,
     ],
-    ['an HTTP error page', 'Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at http://localhost:3000/x', '', null],
-    ['another test in the file reached a page', `${refused}\n\nError: expect(locator).toBeVisible() failed`, '', null],
-    ['the spec hard-codes that address itself', refused, "await page.goto('http://localhost:3000/changelog');", null],
+    [
+      'an HTTP error page',
+      'Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at http://localhost:3000/x',
+      '',
+      null,
+    ],
+    [
+      'another test in the file reached a page',
+      `${refused}\n\nError: expect(locator).toBeVisible() failed`,
+      '',
+      null,
+    ],
+    [
+      'the spec hard-codes that address itself',
+      refused,
+      "await page.goto('http://localhost:3000/changelog');",
+      null,
+    ],
     ['no error text', undefined, '', null],
   ])('%s', (_name, error, code, expected) => {
     expect(unreachableOrigin(error, code)).toBe(expected);

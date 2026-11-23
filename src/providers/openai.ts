@@ -1,5 +1,12 @@
 import * as core from '@actions/core';
-import { ActionConfig, ChangeContext, GeneratedTest, GenerateResult, ILLMClient, SelfHealRequest } from '../types';
+import {
+  ActionConfig,
+  ChangeContext,
+  GeneratedTest,
+  GenerateResult,
+  ILLMClient,
+  SelfHealRequest,
+} from '../types';
 import {
   TEST_GENERATION_SYSTEM,
   BOOTSTRAP_SYSTEM,
@@ -29,7 +36,7 @@ export class OpenAIClient implements ILLMClient {
     if (!key) {
       throw new Error(
         "llm-provider 'openai' requires the OPENAI_API_KEY environment variable. " +
-          'Add it to your workflow step: env: { OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }} }',
+          'Add it to your workflow step: env: { OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }} }'
       );
     }
     this.apiKey = key;
@@ -71,8 +78,14 @@ export class OpenAIClient implements ILLMClient {
 
   async generateTests(context: ChangeContext, config: ActionConfig): Promise<GenerateResult> {
     const model = config.llmModel || DEFAULT_MODEL;
-    core.info(`Generating tests via OpenAI API (${model}) — code stays between your runner and OpenAI`);
-    const content = await this.complete(TEST_GENERATION_SYSTEM, buildGeneratePrompt(context, config.baseUrl), model);
+    core.info(
+      `Generating tests via OpenAI API (${model}) — code stays between your runner and OpenAI`
+    );
+    const content = await this.complete(
+      TEST_GENERATION_SYSTEM,
+      buildGeneratePrompt(context, config.baseUrl),
+      model
+    );
     return parseGenerateResponse(content);
   }
 
@@ -80,14 +93,16 @@ export class OpenAIClient implements ILLMClient {
     journeys: string[],
     pages: { url: string; html: string }[],
     config: ActionConfig,
-    existingTests?: string[],
+    existingTests?: string[]
   ): Promise<GeneratedTest[]> {
     const model = config.llmModel || DEFAULT_MODEL;
-    core.info(`Bootstrapping suite via OpenAI API (${model}) — ${journeys.length} journeys, ${pages.length} pages`);
+    core.info(
+      `Bootstrapping suite via OpenAI API (${model}) — ${journeys.length} journeys, ${pages.length} pages`
+    );
     const content = await this.complete(
       BOOTSTRAP_SYSTEM,
       buildBootstrapPrompt(journeys, pages, config.baseUrl, existingTests),
-      model,
+      model
     );
     return parseTestsFromResponse(content);
   }
@@ -97,12 +112,19 @@ export class OpenAIClient implements ILLMClient {
     core.info(`Self-healing via OpenAI API (${model}), attempt ${request.attempt}`);
     const content = await this.complete(
       SELF_HEALING_SYSTEM,
-      buildHealPrompt(request.test.code, request.error, request.attempt, request.context, request.pageSnapshot),
-      model,
+      buildHealPrompt(
+        request.test.code,
+        request.error,
+        request.attempt,
+        request.context,
+        request.pageSnapshot
+      ),
+      model
     );
 
     const { verdict, rest } = parseHealVerdict(content);
-    const code = verdict.classification === 'app-bug-suspected' ? request.test.code : extractCode(rest);
+    const code =
+      verdict.classification === 'app-bug-suspected' ? request.test.code : extractCode(rest);
 
     return {
       filename: request.test.filename,
@@ -113,7 +135,11 @@ export class OpenAIClient implements ILLMClient {
     };
   }
 
-  async migrateTest(cypressSource: string, staticConversion: string, config: ActionConfig): Promise<string> {
+  async migrateTest(
+    cypressSource: string,
+    staticConversion: string,
+    config: ActionConfig
+  ): Promise<string> {
     const model = config.llmModel || DEFAULT_MODEL;
     core.info(`Refining Cypress migration via OpenAI API (${model})`);
     const prompt =

@@ -57,7 +57,9 @@ describe('assertSafeToWrite (real filesystem)', () => {
   it('BLOCKS a write through a symlinked parent directory', () => {
     const linkedDir = path.join(root, 'nested');
     fs.symlinkSync(outside, linkedDir);
-    expect(() => assertSafeToWrite(root, path.join(linkedDir, 'a.spec.ts'))).toThrow(UnsafeTestPathError);
+    expect(() => assertSafeToWrite(root, path.join(linkedDir, 'a.spec.ts'))).toThrow(
+      UnsafeTestPathError
+    );
   });
 
   it('BLOCKS a path that exists as a directory', () => {

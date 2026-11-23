@@ -20,7 +20,10 @@ describe('parseJourneys', () => {
 
 describe('collectPaths', () => {
   it('always includes the root and extracts mentioned paths', () => {
-    const paths = collectPaths(['Sign in at /login with a password', 'Post a job at /jobs/new, then pay']);
+    const paths = collectPaths([
+      'Sign in at /login with a password',
+      'Post a job at /jobs/new, then pay',
+    ]);
     expect(paths).toContain('/');
     expect(paths).toContain('/login');
     expect(paths).toContain('/jobs/new');

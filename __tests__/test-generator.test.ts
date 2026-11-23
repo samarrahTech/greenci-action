@@ -6,7 +6,9 @@ jest.mock('../src/test-runner', () => ({
   // which correspond to the tests it was given (mockTest is e2e/dashboard.spec.ts
   // under workDir '/tmp' with testDir 'e2e').
   writeTests: jest.fn().mockResolvedValue(['/tmp/e2e/dashboard.spec.ts']),
-  runTests: jest.fn().mockResolvedValue([{ filename: 'e2e/test.spec.ts', passed: true, duration: 100 }]),
+  runTests: jest
+    .fn()
+    .mockResolvedValue([{ filename: 'e2e/test.spec.ts', passed: true, duration: 100 }]),
   ensurePlaywright: jest.fn().mockResolvedValue(false),
   ensurePlaywrightConfig: jest.fn().mockReturnValue(null),
   ensureAuthSession: jest.fn().mockResolvedValue({ status: 'ok' }),
@@ -14,7 +16,9 @@ jest.mock('../src/test-runner', () => ({
 }));
 
 jest.mock('../src/self-healer', () => ({
-  healFailedTests: jest.fn().mockResolvedValue({ healed: [], results: [], suspectedBugs: [], authBlocked: [] }),
+  healFailedTests: jest
+    .fn()
+    .mockResolvedValue({ healed: [], results: [], suspectedBugs: [], authBlocked: [] }),
 }));
 
 // Fixtures below use placeholder code ('test code', 'fixed code'); the
@@ -48,7 +52,7 @@ describe('generateAndRunTests', () => {
     baseUrl: 'http://localhost:3000',
     mode: 'generate',
     cypressDir: 'cypress/e2e',
-  journeys: '',
+    journeys: '',
     maxRetries: 2,
     autoCommit: true,
     sendPageSnapshot: true,
@@ -94,9 +98,19 @@ describe('generateAndRunTests', () => {
     const { healFailedTests } = jest.requireMock('../src/self-healer');
     const failed = { filename: mockTest.filename, passed: false, duration: 5, error: 'boom' };
     runTests.mockResolvedValueOnce([failed]);
-    healFailedTests.mockResolvedValueOnce({ healed: [], results: [failed], suspectedBugs: [], authBlocked: [] });
+    healFailedTests.mockResolvedValueOnce({
+      healed: [],
+      results: [failed],
+      suspectedBugs: [],
+      authBlocked: [],
+    });
 
-    const report = await generateAndRunTests(mockContext, { ...mockConfig, maxRetries: 0 }, mockLLMClient, '/tmp');
+    const report = await generateAndRunTests(
+      mockContext,
+      { ...mockConfig, maxRetries: 0 },
+      mockLLMClient,
+      '/tmp'
+    );
 
     expect(healFailedTests).toHaveBeenCalled();
     expect(report.testsFailed).toBe(1);
@@ -107,12 +121,30 @@ describe('generateAndRunTests', () => {
   it('runs no spec when the sign-in setup found the app unreachable', async () => {
     const { runTests, ensureAuthSession, appDownResults } = jest.requireMock('../src/test-runner');
     const { healFailedTests } = jest.requireMock('../src/self-healer');
-    const authed = { ...mockTest, code: "test.use({ storageState: 'playwright/.auth/user.json' });" };
-    const down = { filename: authed.filename, passed: false, duration: 0, error: 'Nothing answered at http://localhost:3000', unreachable: 'http://localhost:3000' };
+    const authed = {
+      ...mockTest,
+      code: "test.use({ storageState: 'playwright/.auth/user.json' });",
+    };
+    const down = {
+      filename: authed.filename,
+      passed: false,
+      duration: 0,
+      error: 'Nothing answered at http://localhost:3000',
+      unreachable: 'http://localhost:3000',
+    };
     (mockLLMClient.generateTests as jest.Mock).mockResolvedValueOnce({ tests: [authed] });
-    ensureAuthSession.mockResolvedValueOnce({ status: 'unreachable', origin: 'http://localhost:3000', output: 'x' });
+    ensureAuthSession.mockResolvedValueOnce({
+      status: 'unreachable',
+      origin: 'http://localhost:3000',
+      output: 'x',
+    });
     appDownResults.mockReturnValueOnce([down]);
-    healFailedTests.mockResolvedValueOnce({ healed: [], results: [down], suspectedBugs: [], authBlocked: [] });
+    healFailedTests.mockResolvedValueOnce({
+      healed: [],
+      results: [down],
+      suspectedBugs: [],
+      authBlocked: [],
+    });
     runTests.mockClear();
 
     const report = await generateAndRunTests(mockContext, mockConfig, mockLLMClient, '/tmp');
@@ -125,9 +157,17 @@ describe('generateAndRunTests', () => {
   it('gives the run and the heal reruns one session renewal record after signing in', async () => {
     const { runTests, ensureAuthSession } = jest.requireMock('../src/test-runner');
     const { healFailedTests } = jest.requireMock('../src/self-healer');
-    const authed = { ...mockTest, code: "test.use({ storageState: 'playwright/.auth/user.json' });" };
-    runTests.mockResolvedValueOnce([{ filename: authed.filename, passed: false, duration: 1, error: 'boom' }]);
-    const client: ILLMClient = { ...mockLLMClient, generateTests: jest.fn().mockResolvedValue({ tests: [authed] }) };
+    const authed = {
+      ...mockTest,
+      code: "test.use({ storageState: 'playwright/.auth/user.json' });",
+    };
+    runTests.mockResolvedValueOnce([
+      { filename: authed.filename, passed: false, duration: 1, error: 'boom' },
+    ]);
+    const client: ILLMClient = {
+      ...mockLLMClient,
+      generateTests: jest.fn().mockResolvedValue({ tests: [authed] }),
+    };
     await generateAndRunTests(mockContext, mockConfig, client, '/tmp');
     expect(ensureAuthSession).toHaveBeenCalledWith('/tmp', mockConfig);
     const session = runTests.mock.calls[runTests.mock.calls.length - 1][3];
@@ -136,8 +176,18 @@ describe('generateAndRunTests', () => {
   });
 
   it('drops tautological tests before writing and reports them', async () => {
-    const hollow: GeneratedTest = { filename: 'e2e/hollow.spec.ts', code: 'expect(true).toBe(true)', description: '', confidence: 1 };
-    const real: GeneratedTest = { filename: 'e2e/dashboard.spec.ts', code: 'real', description: '', confidence: 1 };
+    const hollow: GeneratedTest = {
+      filename: 'e2e/hollow.spec.ts',
+      code: 'expect(true).toBe(true)',
+      description: '',
+      confidence: 1,
+    };
+    const real: GeneratedTest = {
+      filename: 'e2e/dashboard.spec.ts',
+      code: 'real',
+      description: '',
+      confidence: 1,
+    };
     (rejectTautologies as jest.Mock).mockReturnValueOnce({
       kept: [real],
       rejected: [{ filename: hollow.filename, reason: 'every assertion is unfalsifiable' }],
@@ -151,7 +201,9 @@ describe('generateAndRunTests', () => {
 
     expect(rejectTautologies).toHaveBeenCalledWith([hollow, real]);
     expect(report.testsGenerated).toBe(1);
-    expect(report.rejectedTests).toEqual([{ filename: 'e2e/hollow.spec.ts', reason: 'every assertion is unfalsifiable' }]);
+    expect(report.rejectedTests).toEqual([
+      { filename: 'e2e/hollow.spec.ts', reason: 'every assertion is unfalsifiable' },
+    ]);
   });
 
   it('should return empty report when no tests generated', async () => {
@@ -167,7 +219,9 @@ describe('generateAndRunTests', () => {
 
   it('carries a declined diff into the report as skippedReason', async () => {
     const client: ILLMClient = {
-      generateTests: jest.fn().mockResolvedValue({ tests: [], skippedReason: 'Only PostHog config changed.' }),
+      generateTests: jest
+        .fn()
+        .mockResolvedValue({ tests: [], skippedReason: 'Only PostHog config changed.' }),
       healTest: jest.fn(),
     };
     const report = await generateAndRunTests(mockContext, mockConfig, client, '/tmp');
@@ -178,7 +232,10 @@ describe('generateAndRunTests', () => {
 
   it('carries a failed generation into the report as generationError', async () => {
     const client: ILLMClient = {
-      generateTests: jest.fn().mockResolvedValue({ tests: [], generationError: 'the model returned no usable test code twice' }),
+      generateTests: jest.fn().mockResolvedValue({
+        tests: [],
+        generationError: 'the model returned no usable test code twice',
+      }),
       healTest: jest.fn(),
     };
     const report = await generateAndRunTests(mockContext, mockConfig, client, '/tmp');

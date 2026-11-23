@@ -53,14 +53,23 @@ describe('runMigration', () => {
   });
 
   it('should convert files and return report', async () => {
-    (cypressParser.scanCypressDirectory as jest.Mock).mockReturnValue(['/work/cypress/e2e/login.cy.ts']);
+    (cypressParser.scanCypressDirectory as jest.Mock).mockReturnValue([
+      '/work/cypress/e2e/login.cy.ts',
+    ]);
     (cypressParser.parseCypressFile as jest.Mock).mockReturnValue({
       filePath: '/work/cypress/e2e/login.cy.ts',
       rawSource: 'cy.visit("/")',
-      commands: [], testBlocks: [], customCommands: [], fixtures: [], aliases: [], envVars: [],
+      commands: [],
+      testBlocks: [],
+      customCommands: [],
+      fixtures: [],
+      aliases: [],
+      envVars: [],
     });
     (playwrightConverter.convertCypressToPlaywright as jest.Mock).mockReturnValue({
-      code: 'static converted code', notes: [], confidence: 0.8,
+      code: 'static converted code',
+      notes: [],
+      confidence: 0.8,
     });
 
     const report = await runMigration(mockConfig, mockLLMClient, '/work');
@@ -71,14 +80,23 @@ describe('runMigration', () => {
   });
 
   it('should mark low-confidence files as needs-review', async () => {
-    (cypressParser.scanCypressDirectory as jest.Mock).mockReturnValue(['/work/cypress/e2e/complex.cy.ts']);
+    (cypressParser.scanCypressDirectory as jest.Mock).mockReturnValue([
+      '/work/cypress/e2e/complex.cy.ts',
+    ]);
     (cypressParser.parseCypressFile as jest.Mock).mockReturnValue({
       filePath: '/work/cypress/e2e/complex.cy.ts',
       rawSource: 'cy.custom()',
-      commands: [], testBlocks: [], customCommands: [], fixtures: [], aliases: [], envVars: [],
+      commands: [],
+      testBlocks: [],
+      customCommands: [],
+      fixtures: [],
+      aliases: [],
+      envVars: [],
     });
     (playwrightConverter.convertCypressToPlaywright as jest.Mock).mockReturnValue({
-      code: '// TODO: unconverted', notes: ['Unconverted command'], confidence: 0.3,
+      code: '// TODO: unconverted',
+      notes: ['Unconverted command'],
+      confidence: 0.3,
     });
     (mockLLMClient.migrateTest as jest.Mock).mockResolvedValue('');
 
@@ -87,22 +105,35 @@ describe('runMigration', () => {
   });
 
   it('should handle conversion errors gracefully', async () => {
-    (cypressParser.scanCypressDirectory as jest.Mock).mockReturnValue(['/work/cypress/e2e/broken.cy.ts']);
-    (cypressParser.parseCypressFile as jest.Mock).mockImplementation(() => { throw new Error('Parse error'); });
+    (cypressParser.scanCypressDirectory as jest.Mock).mockReturnValue([
+      '/work/cypress/e2e/broken.cy.ts',
+    ]);
+    (cypressParser.parseCypressFile as jest.Mock).mockImplementation(() => {
+      throw new Error('Parse error');
+    });
 
     const report = await runMigration(mockConfig, mockLLMClient, '/work');
     expect(report.failed).toBe(1);
   });
 
   it('should continue when LLM refinement fails', async () => {
-    (cypressParser.scanCypressDirectory as jest.Mock).mockReturnValue(['/work/cypress/e2e/test.cy.ts']);
+    (cypressParser.scanCypressDirectory as jest.Mock).mockReturnValue([
+      '/work/cypress/e2e/test.cy.ts',
+    ]);
     (cypressParser.parseCypressFile as jest.Mock).mockReturnValue({
       filePath: '/work/cypress/e2e/test.cy.ts',
       rawSource: 'cy.visit("/")',
-      commands: [], testBlocks: [], customCommands: [], fixtures: [], aliases: [], envVars: [],
+      commands: [],
+      testBlocks: [],
+      customCommands: [],
+      fixtures: [],
+      aliases: [],
+      envVars: [],
     });
     (playwrightConverter.convertCypressToPlaywright as jest.Mock).mockReturnValue({
-      code: 'static code', notes: [], confidence: 0.8,
+      code: 'static code',
+      notes: [],
+      confidence: 0.8,
     });
     (mockLLMClient.migrateTest as jest.Mock).mockRejectedValue(new Error('LLM down'));
 

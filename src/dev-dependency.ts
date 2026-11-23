@@ -33,7 +33,13 @@ interface Plan {
 
 const has = (workDir: string, file: string) => fs.existsSync(path.join(workDir, file));
 
-function readPackageJson(workDir: string): Record<string, any> | null {
+interface PackageJson {
+  packageManager?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
+function readPackageJson(workDir: string): PackageJson | null {
   try {
     return JSON.parse(fs.readFileSync(path.join(workDir, 'package.json'), 'utf-8'));
   } catch {
@@ -48,7 +54,12 @@ function declared(workDir: string): string | undefined {
 
 function installedVersion(workDir: string): string | null {
   try {
-    const version = JSON.parse(fs.readFileSync(path.join(workDir, 'node_modules', '@playwright', 'test', 'package.json'), 'utf-8')).version;
+    const version = JSON.parse(
+      fs.readFileSync(
+        path.join(workDir, 'node_modules', '@playwright', 'test', 'package.json'),
+        'utf-8'
+      )
+    ).version;
     return typeof version === 'string' && /^\d+\.\d+\.\d+[\w.-]*$/.test(version) ? version : null;
   } catch {
     return null;
@@ -63,37 +74,80 @@ function installedVersion(workDir: string): string | null {
  */
 function plan(workDir: string, version: string): Plan | string {
   const spec = `${PACKAGE}@${version}`;
-  const yarnBerry = has(workDir, '.yarnrc.yml') || /^yarn@(?!1\.)/.test(String(readPackageJson(workDir)?.packageManager ?? ''));
+  const yarnBerry =
+    has(workDir, '.yarnrc.yml') ||
+    /^yarn@(?!1\.)/.test(String(readPackageJson(workDir)?.packageManager ?? ''));
 
   if (has(workDir, 'pnpm-lock.yaml')) {
     // pnpm refuses to add to a workspace root without -w.
-    return { tool: 'pnpm', lockfile: 'pnpm-lock.yaml', args: ['add', '-D', spec, '--lockfile-only', '--ignore-scripts', ...(has(workDir, 'pnpm-workspace.yaml') ? ['-w'] : [])] };
+    return {
+      tool: 'pnpm',
+      lockfile: 'pnpm-lock.yaml',
+      args: [
+        'add',
+        '-D',
+        spec,
+        '--lockfile-only',
+        '--ignore-scripts',
+        ...(has(workDir, 'pnpm-workspace.yaml') ? ['-w'] : []),
+      ],
+    };
   }
   if (has(workDir, 'yarn.lock')) {
     // Yarn 1 has no lockfile-only mode: `yarn add` installs the whole project.
     if (!yarnBerry) return 'Yarn 1 cannot update its lockfile without a full install';
     // Plug'n'Play and zero-install repos also commit .pnp.cjs and .yarn/cache, which a lockfile-only add leaves behind.
-    if (has(workDir, '.pnp.cjs') || has(workDir, '.pnp.loader.mjs') || has(workDir, path.join('.yarn', 'cache'))) {
-      return 'this Yarn repo commits Plug\'n\'Play or cache files that must change together with the lockfile';
+    if (
+      has(workDir, '.pnp.cjs') ||
+      has(workDir, '.pnp.loader.mjs') ||
+      has(workDir, path.join('.yarn', 'cache'))
+    ) {
+      return "this Yarn repo commits Plug'n'Play or cache files that must change together with the lockfile";
     }
-    return { tool: 'yarn', lockfile: 'yarn.lock', args: ['add', '-D', spec, '--mode=update-lockfile'] };
+    return {
+      tool: 'yarn',
+      lockfile: 'yarn.lock',
+      args: ['add', '-D', spec, '--mode=update-lockfile'],
+    };
   }
   // The bootstrap commit goes through the Git API as text; Bun's old binary lockfile cannot travel that way.
-  if (has(workDir, 'bun.lockb')) return "Bun's binary lockfile (bun.lockb) cannot be committed by GreenCI";
+  if (has(workDir, 'bun.lockb'))
+    return "Bun's binary lockfile (bun.lockb) cannot be committed by GreenCI";
   if (has(workDir, 'bun.lock')) {
-    return { tool: 'bun', lockfile: 'bun.lock', args: ['add', '-d', spec, '--lockfile-only', '--ignore-scripts'] };
+    return {
+      tool: 'bun',
+      lockfile: 'bun.lock',
+      args: ['add', '-d', spec, '--lockfile-only', '--ignore-scripts'],
+    };
   }
   for (const lockfile of ['package-lock.json', 'npm-shrinkwrap.json']) {
     if (has(workDir, lockfile)) {
-      return { tool: 'npm', lockfile, args: ['install', '-D', spec, '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'] };
+      return {
+        tool: 'npm',
+        lockfile,
+        args: [
+          'install',
+          '-D',
+          spec,
+          '--package-lock-only',
+          '--ignore-scripts',
+          '--no-audit',
+          '--no-fund',
+        ],
+      };
     }
   }
   // No lockfile here. If this is not the repository root, the lockfile may
   // live further up (a monorepo package), and package.json alone would break
   // the install there.
-  if (!has(workDir, '.git')) return 'no lockfile was found next to package.json and this is not the repository root';
+  if (!has(workDir, '.git'))
+    return 'no lockfile was found next to package.json and this is not the repository root';
   // No lockfile in the repo: declare the dependency and do not invent one.
-  return { tool: 'npm', lockfile: null, args: ['pkg', 'set', `devDependencies.${PACKAGE}=^${version}`] };
+  return {
+    tool: 'npm',
+    lockfile: null,
+    args: ['pkg', 'set', `devDependencies.${PACKAGE}=^${version}`],
+  };
 }
 
 /**
@@ -135,15 +189,26 @@ export async function savePlaywrightDevDependency(workDir: string): Promise<Depe
 
   const route = plan(workDir, version);
   if (typeof route === 'string') {
-    core.info(`📦 ${PACKAGE} not added to devDependencies: ${route}. The PR explains how to add it by hand`);
+    core.info(
+      `📦 ${PACKAGE} not added to devDependencies: ${route}. The PR explains how to add it by hand`
+    );
     return MANUAL;
   }
 
   // Everything the command may write. Files beyond package.json and the
   // lockfile are watched only to detect a change we do not know how to commit.
   const committable = ['package.json', ...(route.lockfile ? [route.lockfile] : [])];
-  const watched = [...committable, 'pnpm-workspace.yaml', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock'].filter((f, i, all) => all.indexOf(f) === i);
-  const before = new Map(watched.map((f) => [f, has(workDir, f) ? fs.readFileSync(path.join(workDir, f)) : null]));
+  const watched = [
+    ...committable,
+    'pnpm-workspace.yaml',
+    'package-lock.json',
+    'yarn.lock',
+    'pnpm-lock.yaml',
+    'bun.lock',
+  ].filter((f, i, all) => all.indexOf(f) === i);
+  const before = new Map(
+    watched.map((f) => [f, has(workDir, f) ? fs.readFileSync(path.join(workDir, f)) : null])
+  );
   const restore = () => {
     for (const [file, content] of before) {
       try {
@@ -156,7 +221,9 @@ export async function savePlaywrightDevDependency(workDir: string): Promise<Depe
   };
   const giveUp = (why: string): DependencyOutcome => {
     restore();
-    core.warning(`Could not add ${PACKAGE} to devDependencies with ${route.tool}: ${why}. The PR explains how to add it by hand`);
+    core.warning(
+      `Could not add ${PACKAGE} to devDependencies with ${route.tool}: ${why}. The PR explains how to add it by hand`
+    );
     return MANUAL;
   };
 
@@ -167,20 +234,30 @@ export async function savePlaywrightDevDependency(workDir: string): Promise<Depe
       cwd: workDir,
       silent: true,
       ignoreReturnCode: true,
-      listeners: { stdout: (d: Buffer) => (output += d.toString()), stderr: (d: Buffer) => (output += d.toString()) },
+      listeners: {
+        stdout: (d: Buffer) => (output += d.toString()),
+        stderr: (d: Buffer) => (output += d.toString()),
+      },
     });
   } catch (err) {
     return giveUp(err instanceof Error ? err.message : String(err));
   }
   if (code !== 0) {
-    const reason = output.split('\n').map((l) => l.trim()).filter(Boolean).slice(-3).join(' | ').slice(0, 400);
+    const reason = output
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(-3)
+      .join(' | ')
+      .slice(0, 400);
     return giveUp(`exit ${code}${reason ? ` (${reason})` : ''}`);
   }
 
   const range = declared(workDir);
   if (!range) return giveUp('the command succeeded but package.json does not declare it');
   // A pnpm catalog reference points at pnpm-workspace.yaml, which this PR would not carry.
-  if (!/^[\^~]?\d/.test(range)) return giveUp(`it was written as "${range}", which depends on other files`);
+  if (!/^[\^~]?\d/.test(range))
+    return giveUp(`it was written as "${range}", which depends on other files`);
 
   const now = (f: string) => (has(workDir, f) ? fs.readFileSync(path.join(workDir, f)) : null);
   const differs = (f: string) => {
@@ -194,11 +271,18 @@ export async function savePlaywrightDevDependency(workDir: string): Promise<Depe
     if (!differs(route.lockfile)) return giveUp(`${route.lockfile} did not change`);
     const was = lockfileFormat(route.lockfile, before.get(route.lockfile) ?? undefined);
     const is = lockfileFormat(route.lockfile, now(route.lockfile) ?? undefined);
-    if (was !== is) return giveUp(`it rewrote ${route.lockfile} in a different format (${was || 'unknown'} → ${is || 'unknown'}); the runner's ${route.tool} is not the version this repo uses`);
+    if (was !== is)
+      return giveUp(
+        `it rewrote ${route.lockfile} in a different format (${was || 'unknown'} → ${is || 'unknown'}); the runner's ${route.tool} is not the version this repo uses`
+      );
   }
 
-  const files = committable.filter(differs).map((f) => ({ path: path.join(workDir, f), before: before.get(f) as Buffer }));
-  core.info(`📦 Added ${PACKAGE}@${version} to devDependencies with ${route.tool} (${committable.join(', ')})`);
+  const files = committable
+    .filter(differs)
+    .map((f) => ({ path: path.join(workDir, f), before: before.get(f) as Buffer }));
+  core.info(
+    `📦 Added ${PACKAGE}@${version} to devDependencies with ${route.tool} (${committable.join(', ')})`
+  );
   return { status: 'saved', files };
 }
 

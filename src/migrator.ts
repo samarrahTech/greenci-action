@@ -42,7 +42,8 @@ export async function runMigration(
     const result = await convertFile(filePath, cypressDir, targetDir, config, llmClient, workDir);
     results.push(result);
 
-    const icon = result.status === 'converted' ? '✅' : result.status === 'needs-review' ? '⚠️' : '❌';
+    const icon =
+      result.status === 'converted' ? '✅' : result.status === 'needs-review' ? '⚠️' : '❌';
     core.info(`  ${icon} ${result.status} (confidence: ${Math.round(result.confidence * 100)}%)`);
   }
 
@@ -85,7 +86,11 @@ async function convertFile(
     const fileInfo = parseCypressFile(filePath);
 
     // Step 1: Static conversion
-    const { code: staticCode, notes, confidence: staticConfidence } = convertCypressToPlaywright(fileInfo.rawSource);
+    const {
+      code: staticCode,
+      notes,
+      confidence: staticConfidence,
+    } = convertCypressToPlaywright(fileInfo.rawSource);
 
     let finalCode = staticCode;
     let finalConfidence = staticConfidence;
@@ -113,11 +118,21 @@ async function convertFile(
 
     // Determine status
     let status: MigrationResult['status'] = 'converted';
-    if (finalConfidence < 0.5 || allNotes.some((n) => n.includes('TODO') || n.includes('Unconverted'))) {
+    if (
+      finalConfidence < 0.5 ||
+      allNotes.some((n) => n.includes('TODO') || n.includes('Unconverted'))
+    ) {
       status = 'needs-review';
     }
 
-    return { source, target, code: finalCode, status, notes: allNotes, confidence: finalConfidence };
+    return {
+      source,
+      target,
+      code: finalCode,
+      status,
+      notes: allNotes,
+      confidence: finalConfidence,
+    };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     return {

@@ -25,7 +25,8 @@ export function buildMigrationReportBody(report: MigrationReport): string {
     body += `|--------|--------|--------|------------|-------|\n`;
 
     for (const file of report.files) {
-      const statusIcon = file.status === 'converted' ? '✅' : file.status === 'needs-review' ? '⚠️' : '❌';
+      const statusIcon =
+        file.status === 'converted' ? '✅' : file.status === 'needs-review' ? '⚠️' : '❌';
       const confidence = `${Math.round(file.confidence * 100)}%`;
       const notes = file.notes.length > 0 ? file.notes[0] : '-';
       body += `| \`${file.source}\` | \`${file.target}\` | ${statusIcon} ${file.status} | ${confidence} | ${notes} |\n`;

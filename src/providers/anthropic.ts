@@ -1,6 +1,13 @@
 import * as core from '@actions/core';
 import Anthropic from '@anthropic-ai/sdk';
-import { ActionConfig, ChangeContext, GeneratedTest, GenerateResult, ILLMClient, SelfHealRequest } from '../types';
+import {
+  ActionConfig,
+  ChangeContext,
+  GeneratedTest,
+  GenerateResult,
+  ILLMClient,
+  SelfHealRequest,
+} from '../types';
 import {
   TEST_GENERATION_SYSTEM,
   BOOTSTRAP_SYSTEM,
@@ -29,7 +36,7 @@ export class AnthropicClient implements ILLMClient {
     if (!key) {
       throw new Error(
         "llm-provider 'anthropic' requires the ANTHROPIC_API_KEY environment variable. " +
-          'Add it to your workflow step: env: { ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} }',
+          'Add it to your workflow step: env: { ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} }'
       );
     }
     this.client = new Anthropic({ apiKey: key });
@@ -58,8 +65,14 @@ export class AnthropicClient implements ILLMClient {
 
   async generateTests(context: ChangeContext, config: ActionConfig): Promise<GenerateResult> {
     const model = config.llmModel || DEFAULT_MODEL;
-    core.info(`Generating tests via Anthropic API (${model}) — code stays between your runner and Anthropic`);
-    const content = await this.complete(TEST_GENERATION_SYSTEM, buildGeneratePrompt(context, config.baseUrl), model);
+    core.info(
+      `Generating tests via Anthropic API (${model}) — code stays between your runner and Anthropic`
+    );
+    const content = await this.complete(
+      TEST_GENERATION_SYSTEM,
+      buildGeneratePrompt(context, config.baseUrl),
+      model
+    );
     return parseGenerateResponse(content);
   }
 
@@ -67,14 +80,16 @@ export class AnthropicClient implements ILLMClient {
     journeys: string[],
     pages: { url: string; html: string }[],
     config: ActionConfig,
-    existingTests?: string[],
+    existingTests?: string[]
   ): Promise<GeneratedTest[]> {
     const model = config.llmModel || DEFAULT_MODEL;
-    core.info(`Bootstrapping suite via Anthropic API (${model}) — ${journeys.length} journeys, ${pages.length} pages`);
+    core.info(
+      `Bootstrapping suite via Anthropic API (${model}) — ${journeys.length} journeys, ${pages.length} pages`
+    );
     const content = await this.complete(
       BOOTSTRAP_SYSTEM,
       buildBootstrapPrompt(journeys, pages, config.baseUrl, existingTests),
-      model,
+      model
     );
     return parseTestsFromResponse(content);
   }
@@ -84,12 +99,19 @@ export class AnthropicClient implements ILLMClient {
     core.info(`Self-healing via Anthropic API (${model}), attempt ${request.attempt}`);
     const content = await this.complete(
       SELF_HEALING_SYSTEM,
-      buildHealPrompt(request.test.code, request.error, request.attempt, request.context, request.pageSnapshot),
-      model,
+      buildHealPrompt(
+        request.test.code,
+        request.error,
+        request.attempt,
+        request.context,
+        request.pageSnapshot
+      ),
+      model
     );
 
     const { verdict, rest } = parseHealVerdict(content);
-    const code = verdict.classification === 'app-bug-suspected' ? request.test.code : extractCode(rest);
+    const code =
+      verdict.classification === 'app-bug-suspected' ? request.test.code : extractCode(rest);
 
     return {
       filename: request.test.filename,
@@ -100,7 +122,11 @@ export class AnthropicClient implements ILLMClient {
     };
   }
 
-  async migrateTest(cypressSource: string, staticConversion: string, config: ActionConfig): Promise<string> {
+  async migrateTest(
+    cypressSource: string,
+    staticConversion: string,
+    config: ActionConfig
+  ): Promise<string> {
     const model = config.llmModel || DEFAULT_MODEL;
     core.info(`Refining Cypress migration via Anthropic API (${model})`);
     const prompt =

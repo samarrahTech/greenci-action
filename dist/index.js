@@ -33821,7 +33821,14 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
             core.warning(`All ${rejected.length} generated spec(s) were discarded because none contained an assertion that could fail. ` +
                 'Nothing was written. Re-run the bootstrap, or make the journeys more concrete (name the thing the user should see).');
         }
-        return { testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, prUrl: null, rejected };
+        return {
+            testsGenerated: 0,
+            testsPassed: 0,
+            testsFailed: 0,
+            testsHealed: 0,
+            prUrl: null,
+            rejected,
+        };
     }
     // Never rewrite a spec the customer already has (see ProtectExisting).
     const protect = { owned: new Set(), renamed: [] };
@@ -33848,11 +33855,15 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     const createdConfig = configSource !== null;
     // Specs run one file at a time, so produce the session up front instead of
     // relying on the customer's config to route each new spec through setup.
-    const authSession = withAuth ? await (0, test_runner_1.ensureAuthSession)(workDir, config) : null;
+    const authSession = withAuth
+        ? await (0, test_runner_1.ensureAuthSession)(workDir, config)
+        : null;
     // Only a session that signed in is worth renewing (see SessionRenewal).
     const session = authSession?.status === 'ok' ? { rotates: false, stopped: false } : undefined;
     core.info('🏃 Running the bootstrap suite...');
-    const initialResults = authSession?.status === 'unreachable' ? (0, test_runner_1.appDownResults)(generatedTests, authSession) : await (0, test_runner_1.runTests)(generatedTests, config, workDir, session);
+    const initialResults = authSession?.status === 'unreachable'
+        ? (0, test_runner_1.appDownResults)(generatedTests, authSession)
+        : await (0, test_runner_1.runTests)(generatedTests, config, workDir, session);
     const failedTests = initialResults
         .map((result, i) => ({ test: generatedTests[i], result }))
         .filter(({ result }) => !result.passed);
@@ -33875,7 +33886,9 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     // sees the ENOENT. A setup that ran and failed is a sign-in problem, not a
     // wiring problem — report it as such, with the setup's own output.
     if (authSession?.status === 'failed') {
-        authBlocked = authBlocked.map((a) => a.kind === 'setup-not-run' ? { ...a, kind: 'setup-failed', error: authSession.output } : a);
+        authBlocked = authBlocked.map((a) => a.kind === 'setup-not-run'
+            ? { ...a, kind: 'setup-failed', error: authSession.output }
+            : a);
     }
     const allResults = [...initialResults.filter((r) => r.passed), ...healedResults];
     const passed = allResults.filter((r) => r.passed);
@@ -33907,7 +33920,8 @@ async function runBootstrap(config, llmClient, workDir, token, repo) {
     let dependency = { status: 'manual', files: [] };
     if (installedPlaywright && config.autoCommit && token && passingFiles.length > 0) {
         dependency = await (0, dev_dependency_1.savePlaywrightDevDependency)(workDir);
-        if (dependency.status === 'saved' && !(await (0, git_ops_1.unchangedOnDefaultBranch)(token, repo.owner, repo.repo, workDir, dependency.files))) {
+        if (dependency.status === 'saved' &&
+            !(await (0, git_ops_1.unchangedOnDefaultBranch)(token, repo.owner, repo.repo, workDir, dependency.files))) {
             core.warning('package.json or the lockfile in this checkout is not what the default branch holds, so the @playwright/test ' +
                 'dependency is left out of the PR (it would carry the other differences too). The PR explains how to add it by hand');
             // Later workflow steps must not find a half-applied change either.
@@ -33973,8 +33987,11 @@ function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, s
     const renamedCommitted = (setup.renamed ?? []).filter((r) => passed.some((p) => p.filename === r.to));
     if (renamedCommitted.length > 0) {
         body += '### ✋ Kept your existing tests\n';
-        body += 'These journeys produced a file with the same name as a test already in your repo. GreenCI never overwrites your tests, so the new one was committed alongside it. Diff the pair and keep the one you prefer:\n\n';
-        body += renamedCommitted.map((r) => `- \`${r.from}\` (yours) → \`${r.to}\` (generated)`).join('\n') + '\n\n';
+        body +=
+            'These journeys produced a file with the same name as a test already in your repo. GreenCI never overwrites your tests, so the new one was committed alongside it. Diff the pair and keep the one you prefer:\n\n';
+        body +=
+            renamedCommitted.map((r) => `- \`${r.from}\` (yours) → \`${r.to}\` (generated)`).join('\n') +
+                '\n\n';
     }
     body += (0, assertion_lint_1.renderRejectedSection)(setup.rejected);
     const authNames = new Set(setup.authBlocked.map((a) => a.filename));
@@ -33985,12 +34002,19 @@ function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, s
     if (signInFailed.length > 0) {
         body += '### 🔐 ' + signInFailed.length + ' journey(s) blocked: sign-in did not complete\n';
         body += signInFailed.map((a) => `- \`${a.filename}\``).join('\n') + '\n\n';
-        body += 'The login setup (`' + setup.testDir + '/auth.setup.ts`) ran but never got past the login page, so these journeys could not run. Likely causes, in order:\n\n';
+        body +=
+            'The login setup (`' +
+                setup.testDir +
+                '/auth.setup.ts`) ran but never got past the login page, so these journeys could not run. Likely causes, in order:\n\n';
         body += '- The test credentials are wrong, or the account is locked/unverified\n';
-        body += '- Your login endpoint is **rate-limiting** the run (CI signs in repeatedly from one IP)\n';
+        body +=
+            '- Your login endpoint is **rate-limiting** the run (CI signs in repeatedly from one IP)\n';
         body += '- Sign-in is genuinely broken — worth checking by hand\n\n';
         if (setup.authSetupOutput) {
-            body += 'The sign-in step (“Signing in via auth.setup.ts” in the workflow log) failed with:\n\n```\n' + setup.authSetupOutput.trim().substring(0, 1200) + '\n```\n\n';
+            body +=
+                'The sign-in step (“Signing in via auth.setup.ts” in the workflow log) failed with:\n\n```\n' +
+                    setup.authSetupOutput.trim().substring(0, 1200) +
+                    '\n```\n\n';
         }
         else {
             body += 'The exact error is in the workflow log under the `[setup]` project. ';
@@ -34000,48 +34024,65 @@ function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, s
     if (notRun.length > 0) {
         body += '### 🔐 ' + notRun.length + ' journey(s) blocked: no signed-in session was available\n';
         body += notRun.map((a) => `- \`${a.filename}\``).join('\n') + '\n\n';
-        body += '`TEST_USER_EMAIL` / `TEST_USER_PASSWORD` are set, but no `playwright/.auth/user.json` session existed when these specs ran.\n\n';
+        body +=
+            '`TEST_USER_EMAIL` / `TEST_USER_PASSWORD` are set, but no `playwright/.auth/user.json` session existed when these specs ran.\n\n';
         if (setup.authSetupStatus === 'no-session-file') {
-            body += 'The login setup (`' + setup.testDir + '/auth.setup.ts`) ran and exited cleanly but did not write `playwright/.auth/user.json` — it saves the session somewhere else, or skips on a condition of its own. ';
-            body += 'Make it end with `await page.context().storageState({ path: \'playwright/.auth/user.json\' })`, or point the specs\' `test.use({ storageState })` at the path it does write.\n\n';
+            body +=
+                'The login setup (`' +
+                    setup.testDir +
+                    '/auth.setup.ts`) ran and exited cleanly but did not write `playwright/.auth/user.json` — it saves the session somewhere else, or skips on a condition of its own. ';
+            body +=
+                "Make it end with `await page.context().storageState({ path: 'playwright/.auth/user.json' })`, or point the specs' `test.use({ storageState })` at the path it does write.\n\n";
         }
         else if (setup.authSetupStatus === 'ok') {
-            body += 'The login setup ran and wrote `playwright/.auth/user.json`, but the specs could not read it. Playwright resolves `storageState` relative to the directory holding `playwright.config.ts`: if your config lives in a subdirectory, save the session relative to that directory (or use an absolute path in both places).\n\n';
+            body +=
+                'The login setup ran and wrote `playwright/.auth/user.json`, but the specs could not read it. Playwright resolves `storageState` relative to the directory holding `playwright.config.ts`: if your config lives in a subdirectory, save the session relative to that directory (or use an absolute path in both places).\n\n';
         }
         else {
-            body += 'The login setup (`' + setup.testDir + '/auth.setup.ts`) did not run before these specs. ';
+            body +=
+                'The login setup (`' + setup.testDir + '/auth.setup.ts`) did not run before these specs. ';
             if (setup.authSetupStatus === 'not-wired') {
                 body += 'No project in your `playwright.config.ts` matches `auth.setup.ts`. ';
             }
             body += 'Add a `setup` project and make the project that runs these specs depend on it:\n\n';
-            body += '```ts\n  projects: [\n    { name: \'setup\', testMatch: /auth\\.setup\\.ts/ },\n    { name: \'chromium\', dependencies: [\'setup\'] },\n  ],\n```\n\n';
+            body +=
+                "```ts\n  projects: [\n    { name: 'setup', testMatch: /auth\\.setup\\.ts/ },\n    { name: 'chromium', dependencies: ['setup'] },\n  ],\n```\n\n";
         }
-        body += 'Then re-run the **GreenCI Bootstrap** workflow — a follow-up PR will include the authenticated journeys.\n\n';
+        body +=
+            'Then re-run the **GreenCI Bootstrap** workflow — a follow-up PR will include the authenticated journeys.\n\n';
     }
     if (needsCreds.length > 0) {
         body += '### 🔐 ' + needsCreds.length + ' journey(s) need login credentials\n';
         body += needsCreds.map((a) => `- \`${a.filename}\``).join('\n') + '\n\n';
-        body += 'A ready-made login setup (`' + setup.testDir + '/auth.setup.ts`) is included in this PR. To activate these tests:\n\n';
+        body +=
+            'A ready-made login setup (`' +
+                setup.testDir +
+                '/auth.setup.ts`) is included in this PR. To activate these tests:\n\n';
         body += '1. Create a **dedicated test user** in your app (never a real account)\n';
-        body += '2. Add two repository secrets (Settings → Secrets and variables → Actions): `TEST_USER_EMAIL` and `TEST_USER_PASSWORD`\n';
+        body +=
+            '2. Add two repository secrets (Settings → Secrets and variables → Actions): `TEST_USER_EMAIL` and `TEST_USER_PASSWORD`\n';
         body += '3. Expose them on the GreenCI workflow step:\n\n';
-        body += '```yaml\n        env:\n          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}\n          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}\n```\n\n';
-        body += '4. Re-run the **GreenCI Bootstrap** workflow — a follow-up PR will include the authenticated journeys.\n\n';
+        body +=
+            '```yaml\n        env:\n          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}\n          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}\n```\n\n';
+        body +=
+            '4. Re-run the **GreenCI Bootstrap** workflow — a follow-up PR will include the authenticated journeys.\n\n';
         body += 'Your credentials stay in your repo and your CI runner — they never touch GreenCI.\n\n';
     }
     if (otherFailed.length > 0) {
         body += '### Failing tests (see the workflow log)\n';
         body += otherFailed.map((f) => `- \`${f.filename}\``).join('\n') + '\n\n';
-        body += 'Common causes: pages that need seeded data, or flows the captured pages did not cover.\n\n';
+        body +=
+            'Common causes: pages that need seeded data, or flows the captured pages did not cover.\n\n';
     }
     if (setup.installedPlaywright || setup.createdConfig) {
         body += '### One-time setup to run these locally\n';
         if (setup.dependency === 'saved' && setup.savedDependency && setup.savedDependency.length > 0) {
             body += `This repo didn't have Playwright yet. This PR adds \`@playwright/test\` to \`devDependencies\` (${setup.savedDependency.map((f) => `\`${f}\``).join(', ')}), so after merging, install as usual and fetch the browser:\n\n`;
-            body += '```bash\nnpm install   # or your package manager\nnpx playwright install chromium\n```\n\n';
+            body +=
+                '```bash\nnpm install   # or your package manager\nnpx playwright install chromium\n```\n\n';
         }
         else if (setup.installedPlaywright && setup.dependency !== 'declared') {
-            body += 'This repo didn\'t have Playwright yet (GreenCI installed it just for this run):\n\n';
+            body += "This repo didn't have Playwright yet (GreenCI installed it just for this run):\n\n";
             body += '```bash\nnpm install -D @playwright/test\nnpx playwright install chromium\n```\n\n';
         }
         else {
@@ -34053,15 +34094,18 @@ function buildBootstrapPRBody(journeys, passed, failed, healed, suspectedBugs, s
         // With auth the generated config is part of this PR (it carries the
         // setup project); otherwise the customer adds it by hand.
         if (setup.createdConfig && setup.withAuth) {
-            body += 'The `playwright.config.ts` in this PR wires the login setup and, when a start script was found, starts your app for local runs (`webServer`).\n\n';
+            body +=
+                'The `playwright.config.ts` in this PR wires the login setup and, when a start script was found, starts your app for local runs (`webServer`).\n\n';
         }
         else if (setup.createdConfig) {
-            const snippet = setup.configSource ?? (0, test_runner_1.playwrightConfigSource)({ baseUrl: setup.baseUrl, testDir: setup.testDir });
+            const snippet = setup.configSource ??
+                (0, test_runner_1.playwrightConfigSource)({ baseUrl: setup.baseUrl, testDir: setup.testDir });
             body += `And add a \`playwright.config.ts\`:\n\n\`\`\`ts\n${snippet.trimEnd()}\n\`\`\`\n\n`;
         }
         body += `Then run the suite with \`npx playwright test\`.\n\n`;
     }
-    body += '---\n*Generated by [GreenCI](https://greenci.ai) 🌱 — future PRs will keep this suite up to date automatically.*\n';
+    body +=
+        '---\n*Generated by [GreenCI](https://greenci.ai) 🌱 — future PRs will keep this suite up to date automatically.*\n';
     return body;
 }
 
@@ -34129,12 +34173,22 @@ function booleanInput(name, safe, whenSafe) {
 }
 function getConfig() {
     const provider = core.getInput('llm-provider') || 'greenci';
-    const validProviders = ['greenci', 'anthropic', 'openai', 'bedrock', 'azure-openai', 'ollama'];
+    const validProviders = [
+        'greenci',
+        'anthropic',
+        'openai',
+        'bedrock',
+        'azure-openai',
+        'ollama',
+    ];
     if (!validProviders.includes(provider)) {
         throw new Error(`Invalid LLM provider: ${provider}. Must be one of: ${validProviders.join(', ')}`);
     }
     const mode = (core.getInput('mode') || 'generate');
-    if (mode !== 'generate' && mode !== 'generate-only' && mode !== 'migrate' && mode !== 'bootstrap') {
+    if (mode !== 'generate' &&
+        mode !== 'generate-only' &&
+        mode !== 'migrate' &&
+        mode !== 'bootstrap') {
         throw new Error(`Invalid mode: ${mode}. Must be 'generate', 'generate-only', 'migrate', or 'bootstrap'.`);
     }
     const journeys = core.getInput('journeys') || '';
@@ -34194,10 +34248,7 @@ const ROUTE_PATTERNS = [
     // React Router / generic route files
     /routes?\//i,
 ];
-const COMPONENT_PATTERNS = [
-    /components?\//i,
-    /src\/.*\.(tsx|jsx)$/,
-];
+const COMPONENT_PATTERNS = [/components?\//i, /src\/.*\.(tsx|jsx)$/];
 const API_PATTERNS = [
     // Next.js API routes
     /app\/api\/(.+?)\/route\.(ts|js)$/,
@@ -34227,10 +34278,12 @@ function extractRoutes(files) {
             if (match) {
                 let routePath = match[1] || file.filename;
                 // Convert file path to route path
-                routePath = '/' + routePath
-                    .replace(/\/page$/, '')
-                    .replace(/\/index$/, '')
-                    .replace(/\[(.+?)\]/g, ':$1');
+                routePath =
+                    '/' +
+                        routePath
+                            .replace(/\/page$/, '')
+                            .replace(/\/index$/, '')
+                            .replace(/\[(.+?)\]/g, ':$1');
                 routes.push({
                     path: routePath,
                     file: file.filename,
@@ -34478,16 +34531,75 @@ function extractCustomCommands(source) {
     const customPattern = /Cypress\.Commands\.add\s*\(\s*['"`](\w+)['"`]/g;
     const chainPattern = /cy\.(\w+)\s*\(/g;
     const builtinCommands = new Set([
-        'get', 'visit', 'click', 'type', 'contains', 'intercept', 'wait',
-        'request', 'fixture', 'url', 'location', 'title', 'window', 'document',
-        'should', 'and', 'then', 'wrap', 'its', 'invoke', 'as', 'find',
-        'within', 'parent', 'parents', 'children', 'siblings', 'first', 'last',
-        'eq', 'filter', 'not', 'each', 'scrollIntoView', 'scrollTo', 'trigger',
-        'focus', 'blur', 'clear', 'check', 'uncheck', 'select', 'screenshot',
-        'viewport', 'clearCookie', 'clearCookies', 'clearLocalStorage', 'getCookie',
-        'getCookies', 'setCookie', 'log', 'debug', 'pause', 'exec', 'task',
-        'readFile', 'writeFile', 'stub', 'spy', 'clock', 'tick', 'go', 'reload',
-        'hash', 'on', 'once', 'off', 'root', 'end',
+        'get',
+        'visit',
+        'click',
+        'type',
+        'contains',
+        'intercept',
+        'wait',
+        'request',
+        'fixture',
+        'url',
+        'location',
+        'title',
+        'window',
+        'document',
+        'should',
+        'and',
+        'then',
+        'wrap',
+        'its',
+        'invoke',
+        'as',
+        'find',
+        'within',
+        'parent',
+        'parents',
+        'children',
+        'siblings',
+        'first',
+        'last',
+        'eq',
+        'filter',
+        'not',
+        'each',
+        'scrollIntoView',
+        'scrollTo',
+        'trigger',
+        'focus',
+        'blur',
+        'clear',
+        'check',
+        'uncheck',
+        'select',
+        'screenshot',
+        'viewport',
+        'clearCookie',
+        'clearCookies',
+        'clearLocalStorage',
+        'getCookie',
+        'getCookies',
+        'setCookie',
+        'log',
+        'debug',
+        'pause',
+        'exec',
+        'task',
+        'readFile',
+        'writeFile',
+        'stub',
+        'spy',
+        'clock',
+        'tick',
+        'go',
+        'reload',
+        'hash',
+        'on',
+        'once',
+        'off',
+        'root',
+        'end',
     ]);
     const custom = new Set();
     // Explicit Cypress.Commands.add
@@ -34613,30 +34725,64 @@ function installedVersion(workDir) {
  */
 function plan(workDir, version) {
     const spec = `${PACKAGE}@${version}`;
-    const yarnBerry = has(workDir, '.yarnrc.yml') || /^yarn@(?!1\.)/.test(String(readPackageJson(workDir)?.packageManager ?? ''));
+    const yarnBerry = has(workDir, '.yarnrc.yml') ||
+        /^yarn@(?!1\.)/.test(String(readPackageJson(workDir)?.packageManager ?? ''));
     if (has(workDir, 'pnpm-lock.yaml')) {
         // pnpm refuses to add to a workspace root without -w.
-        return { tool: 'pnpm', lockfile: 'pnpm-lock.yaml', args: ['add', '-D', spec, '--lockfile-only', '--ignore-scripts', ...(has(workDir, 'pnpm-workspace.yaml') ? ['-w'] : [])] };
+        return {
+            tool: 'pnpm',
+            lockfile: 'pnpm-lock.yaml',
+            args: [
+                'add',
+                '-D',
+                spec,
+                '--lockfile-only',
+                '--ignore-scripts',
+                ...(has(workDir, 'pnpm-workspace.yaml') ? ['-w'] : []),
+            ],
+        };
     }
     if (has(workDir, 'yarn.lock')) {
         // Yarn 1 has no lockfile-only mode: `yarn add` installs the whole project.
         if (!yarnBerry)
             return 'Yarn 1 cannot update its lockfile without a full install';
         // Plug'n'Play and zero-install repos also commit .pnp.cjs and .yarn/cache, which a lockfile-only add leaves behind.
-        if (has(workDir, '.pnp.cjs') || has(workDir, '.pnp.loader.mjs') || has(workDir, path.join('.yarn', 'cache'))) {
-            return 'this Yarn repo commits Plug\'n\'Play or cache files that must change together with the lockfile';
+        if (has(workDir, '.pnp.cjs') ||
+            has(workDir, '.pnp.loader.mjs') ||
+            has(workDir, path.join('.yarn', 'cache'))) {
+            return "this Yarn repo commits Plug'n'Play or cache files that must change together with the lockfile";
         }
-        return { tool: 'yarn', lockfile: 'yarn.lock', args: ['add', '-D', spec, '--mode=update-lockfile'] };
+        return {
+            tool: 'yarn',
+            lockfile: 'yarn.lock',
+            args: ['add', '-D', spec, '--mode=update-lockfile'],
+        };
     }
     // The bootstrap commit goes through the Git API as text; Bun's old binary lockfile cannot travel that way.
     if (has(workDir, 'bun.lockb'))
         return "Bun's binary lockfile (bun.lockb) cannot be committed by GreenCI";
     if (has(workDir, 'bun.lock')) {
-        return { tool: 'bun', lockfile: 'bun.lock', args: ['add', '-d', spec, '--lockfile-only', '--ignore-scripts'] };
+        return {
+            tool: 'bun',
+            lockfile: 'bun.lock',
+            args: ['add', '-d', spec, '--lockfile-only', '--ignore-scripts'],
+        };
     }
     for (const lockfile of ['package-lock.json', 'npm-shrinkwrap.json']) {
         if (has(workDir, lockfile)) {
-            return { tool: 'npm', lockfile, args: ['install', '-D', spec, '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'] };
+            return {
+                tool: 'npm',
+                lockfile,
+                args: [
+                    'install',
+                    '-D',
+                    spec,
+                    '--package-lock-only',
+                    '--ignore-scripts',
+                    '--no-audit',
+                    '--no-fund',
+                ],
+            };
         }
     }
     // No lockfile here. If this is not the repository root, the lockfile may
@@ -34645,7 +34791,11 @@ function plan(workDir, version) {
     if (!has(workDir, '.git'))
         return 'no lockfile was found next to package.json and this is not the repository root';
     // No lockfile in the repo: declare the dependency and do not invent one.
-    return { tool: 'npm', lockfile: null, args: ['pkg', 'set', `devDependencies.${PACKAGE}=^${version}`] };
+    return {
+        tool: 'npm',
+        lockfile: null,
+        args: ['pkg', 'set', `devDependencies.${PACKAGE}=^${version}`],
+    };
 }
 /**
  * The line of a lockfile that names its format. A package manager newer than
@@ -34693,7 +34843,14 @@ async function savePlaywrightDevDependency(workDir) {
     // Everything the command may write. Files beyond package.json and the
     // lockfile are watched only to detect a change we do not know how to commit.
     const committable = ['package.json', ...(route.lockfile ? [route.lockfile] : [])];
-    const watched = [...committable, 'pnpm-workspace.yaml', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock'].filter((f, i, all) => all.indexOf(f) === i);
+    const watched = [
+        ...committable,
+        'pnpm-workspace.yaml',
+        'package-lock.json',
+        'yarn.lock',
+        'pnpm-lock.yaml',
+        'bun.lock',
+    ].filter((f, i, all) => all.indexOf(f) === i);
     const before = new Map(watched.map((f) => [f, has(workDir, f) ? fs.readFileSync(path.join(workDir, f)) : null]));
     const restore = () => {
         for (const [file, content] of before) {
@@ -34720,14 +34877,23 @@ async function savePlaywrightDevDependency(workDir) {
             cwd: workDir,
             silent: true,
             ignoreReturnCode: true,
-            listeners: { stdout: (d) => (output += d.toString()), stderr: (d) => (output += d.toString()) },
+            listeners: {
+                stdout: (d) => (output += d.toString()),
+                stderr: (d) => (output += d.toString()),
+            },
         });
     }
     catch (err) {
         return giveUp(err instanceof Error ? err.message : String(err));
     }
     if (code !== 0) {
-        const reason = output.split('\n').map((l) => l.trim()).filter(Boolean).slice(-3).join(' | ').slice(0, 400);
+        const reason = output
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean)
+            .slice(-3)
+            .join(' | ')
+            .slice(0, 400);
         return giveUp(`exit ${code}${reason ? ` (${reason})` : ''}`);
     }
     const range = declared(workDir);
@@ -34753,7 +34919,9 @@ async function savePlaywrightDevDependency(workDir) {
         if (was !== is)
             return giveUp(`it rewrote ${route.lockfile} in a different format (${was || 'unknown'} → ${is || 'unknown'}); the runner's ${route.tool} is not the version this repo uses`);
     }
-    const files = committable.filter(differs).map((f) => ({ path: path.join(workDir, f), before: before.get(f) }));
+    const files = committable
+        .filter(differs)
+        .map((f) => ({ path: path.join(workDir, f), before: before.get(f) }));
     core.info(`📦 Added ${PACKAGE}@${version} to devDependencies with ${route.tool} (${committable.join(', ')})`);
     return { status: 'saved', files };
 }
@@ -35204,7 +35372,12 @@ async function createBootstrapPR(token, owner, repo, testFiles, workDir, prBody)
         }
         const content = fs.readFileSync(filePath, 'utf-8');
         const relativePath = path.relative(workDir, filePath);
-        const { data: blob } = await octokit.rest.git.createBlob({ owner, repo, content, encoding: 'utf-8' });
+        const { data: blob } = await octokit.rest.git.createBlob({
+            owner,
+            repo,
+            content,
+            encoding: 'utf-8',
+        });
         treeItems.push({ path: relativePath, mode: '100644', type: 'blob', sha: blob.sha });
         committedFiles.push(relativePath);
     }
@@ -35334,7 +35507,9 @@ async function run() {
                 core.setOutput('report-url', outcome.prUrl);
             core.info(`🌱 Bootstrap complete: ${outcome.testsPassed}/${outcome.testsGenerated} tests passing` +
                 (outcome.prUrl ? ` — PR: ${outcome.prUrl}` : '') +
-                (outcome.rejected.length > 0 ? ` — ${outcome.rejected.length} discarded as unfalsifiable (see warnings)` : ''));
+                (outcome.rejected.length > 0
+                    ? ` — ${outcome.rejected.length} discarded as unfalsifiable (see warnings)`
+                    : ''));
             return;
         }
         // Migration mode
@@ -35893,7 +36068,7 @@ async function convertFile(filePath, cypressDir, targetDir, config, llmClient, w
     try {
         const fileInfo = (0, cypress_parser_1.parseCypressFile)(filePath);
         // Step 1: Static conversion
-        const { code: staticCode, notes, confidence: staticConfidence } = (0, playwright_converter_1.convertCypressToPlaywright)(fileInfo.rawSource);
+        const { code: staticCode, notes, confidence: staticConfidence, } = (0, playwright_converter_1.convertCypressToPlaywright)(fileInfo.rawSource);
         let finalCode = staticCode;
         let finalConfidence = staticConfidence;
         const allNotes = [...notes];
@@ -35918,10 +36093,18 @@ async function convertFile(filePath, cypressDir, targetDir, config, llmClient, w
         fs.writeFileSync(targetPath, finalCode, 'utf-8');
         // Determine status
         let status = 'converted';
-        if (finalConfidence < 0.5 || allNotes.some((n) => n.includes('TODO') || n.includes('Unconverted'))) {
+        if (finalConfidence < 0.5 ||
+            allNotes.some((n) => n.includes('TODO') || n.includes('Unconverted'))) {
             status = 'needs-review';
         }
-        return { source, target, code: finalCode, status, notes: allNotes, confidence: finalConfidence };
+        return {
+            source,
+            target,
+            code: finalCode,
+            status,
+            notes: allNotes,
+            confidence: finalConfidence,
+        };
     }
     catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -36073,7 +36256,10 @@ function findPlaywrightConfig(workDir) {
     return exports.PLAYWRIGHT_CONFIG_FILES.find((f) => fs.existsSync(path.join(workDir, f))) ?? null;
 }
 /** Run-only files: written next to the repo's config, removed when the run ends, never committed. */
-exports.BASE_URL_OVERRIDE_CONFIGS = ['playwright.greenci.config.ts', 'playwright.greenci.config.mjs'];
+exports.BASE_URL_OVERRIDE_CONFIGS = [
+    'playwright.greenci.config.ts',
+    'playwright.greenci.config.mjs',
+];
 /** An ES-module config gets an ES-module wrapper, so it is imported, never require()d. */
 function overrideConfigName(configFile) {
     return /\.m[jt]s$/.test(configFile) ? exports.BASE_URL_OVERRIDE_CONFIGS[1] : exports.BASE_URL_OVERRIDE_CONFIGS[0];
@@ -36191,44 +36377,95 @@ const CONVERSION_RULES = [
     // Test structure
     { pattern: /\bdescribe\s*\(/g, replace: 'test.describe(' },
     { pattern: /\bit\s*\(/g, replace: 'test(' },
-    { pattern: /\bbefore\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g, replace: 'test.beforeAll($1' },
-    { pattern: /\bbeforeEach\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g, replace: 'test.beforeEach($1' },
+    {
+        pattern: /\bbefore\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g,
+        replace: 'test.beforeAll($1',
+    },
+    {
+        pattern: /\bbeforeEach\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g,
+        replace: 'test.beforeEach($1',
+    },
     { pattern: /\bafter\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g, replace: 'test.afterAll($1' },
-    { pattern: /\bafterEach\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g, replace: 'test.afterEach($1' },
+    {
+        pattern: /\bafterEach\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g,
+        replace: 'test.afterEach($1',
+    },
     // Navigation
     { pattern: /cy\.visit\s*\(([^)]+)\)/g, replace: 'await page.goto($1)' },
     // Selectors - click
     { pattern: /cy\.get\s*\(([^)]+)\)\.click\s*\(\)/g, replace: 'await page.locator($1).click()' },
     // Selectors - type → fill
-    { pattern: /cy\.get\s*\(([^)]+)\)\.type\s*\(([^)]+)\)/g, replace: 'await page.locator($1).fill($2)' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.type\s*\(([^)]+)\)/g,
+        replace: 'await page.locator($1).fill($2)',
+    },
     // Selectors - clear
     { pattern: /cy\.get\s*\(([^)]+)\)\.clear\s*\(\)/g, replace: 'await page.locator($1).clear()' },
     // Assertions - should('be.visible')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.visible['"`]\s*\)/g, replace: 'await expect(page.locator($1)).toBeVisible()' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.visible['"`]\s*\)/g,
+        replace: 'await expect(page.locator($1)).toBeVisible()',
+    },
     // Assertions - should('not.be.visible')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]not\.be\.visible['"`]\s*\)/g, replace: 'await expect(page.locator($1)).not.toBeVisible()' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]not\.be\.visible['"`]\s*\)/g,
+        replace: 'await expect(page.locator($1)).not.toBeVisible()',
+    },
     // Assertions - should('exist')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]exist['"`]\s*\)/g, replace: 'await expect(page.locator($1)).toBeAttached()' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]exist['"`]\s*\)/g,
+        replace: 'await expect(page.locator($1)).toBeAttached()',
+    },
     // Assertions - should('not.exist')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]not\.exist['"`]\s*\)/g, replace: 'await expect(page.locator($1)).not.toBeAttached()' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]not\.exist['"`]\s*\)/g,
+        replace: 'await expect(page.locator($1)).not.toBeAttached()',
+    },
     // Assertions - should('have.text', 'x')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.text['"`]\s*,\s*([^)]+)\)/g, replace: 'await expect(page.locator($1)).toHaveText($2)' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.text['"`]\s*,\s*([^)]+)\)/g,
+        replace: 'await expect(page.locator($1)).toHaveText($2)',
+    },
     // Assertions - should('contain', 'x')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]contain['"`]\s*,\s*([^)]+)\)/g, replace: 'await expect(page.locator($1)).toContainText($2)' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]contain['"`]\s*,\s*([^)]+)\)/g,
+        replace: 'await expect(page.locator($1)).toContainText($2)',
+    },
     // Assertions - should('have.value', 'x')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.value['"`]\s*,\s*([^)]+)\)/g, replace: 'await expect(page.locator($1)).toHaveValue($2)' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.value['"`]\s*,\s*([^)]+)\)/g,
+        replace: 'await expect(page.locator($1)).toHaveValue($2)',
+    },
     // Assertions - should('have.length', n)
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.length['"`]\s*,\s*([^)]+)\)/g, replace: 'await expect(page.locator($1)).toHaveCount($2)' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.length['"`]\s*,\s*([^)]+)\)/g,
+        replace: 'await expect(page.locator($1)).toHaveCount($2)',
+    },
     // Assertions - should('be.disabled')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.disabled['"`]\s*\)/g, replace: 'await expect(page.locator($1)).toBeDisabled()' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.disabled['"`]\s*\)/g,
+        replace: 'await expect(page.locator($1)).toBeDisabled()',
+    },
     // Assertions - should('be.enabled')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.enabled['"`]\s*\)/g, replace: 'await expect(page.locator($1)).toBeEnabled()' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.enabled['"`]\s*\)/g,
+        replace: 'await expect(page.locator($1)).toBeEnabled()',
+    },
     // Assertions - should('be.checked')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.checked['"`]\s*\)/g, replace: 'await expect(page.locator($1)).toBeChecked()' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.checked['"`]\s*\)/g,
+        replace: 'await expect(page.locator($1)).toBeChecked()',
+    },
     // Assertions - should('have.attr', 'x', 'y')
-    { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.attr['"`]\s*,\s*([^,)]+),\s*([^)]+)\)/g, replace: 'await expect(page.locator($1)).toHaveAttribute($2, $3)' },
+    {
+        pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.attr['"`]\s*,\s*([^,)]+),\s*([^)]+)\)/g,
+        replace: 'await expect(page.locator($1)).toHaveAttribute($2, $3)',
+    },
     // cy.contains
-    { pattern: /cy\.contains\s*\(([^)]+)\)\.click\s*\(\)/g, replace: 'await page.getByText($1).click()' },
+    {
+        pattern: /cy\.contains\s*\(([^)]+)\)\.click\s*\(\)/g,
+        replace: 'await page.getByText($1).click()',
+    },
     { pattern: /cy\.contains\s*\(([^)]+)\)/g, replace: 'page.getByText($1)' },
     // cy.get (generic - must come after more specific patterns)
     { pattern: /cy\.get\s*\(([^)]+)\)/g, replace: 'page.locator($1)' },
@@ -36244,21 +36481,39 @@ const CONVERSION_RULES = [
     { pattern: /cy\.screenshot\s*\(\)/g, replace: 'await page.screenshot()' },
     { pattern: /cy\.screenshot\s*\(([^)]+)\)/g, replace: 'await page.screenshot({ path: $1 })' },
     // cy.wait with alias
-    { pattern: /cy\.wait\s*\(\s*['"`]@([^'"`]+)['"`]\s*\)/g, replace: "// TODO: Replace with appropriate waitForResponse for alias '$1'" },
+    {
+        pattern: /cy\.wait\s*\(\s*['"`]@([^'"`]+)['"`]\s*\)/g,
+        replace: "// TODO: Replace with appropriate waitForResponse for alias '$1'",
+    },
     // cy.wait with number (timeout)
     { pattern: /cy\.wait\s*\(\s*(\d+)\s*\)/g, replace: 'await page.waitForTimeout($1)' },
     // Viewport
-    { pattern: /cy\.viewport\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/g, replace: 'test.use({ viewport: { width: $1, height: $2 } })' },
+    {
+        pattern: /cy\.viewport\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/g,
+        replace: 'test.use({ viewport: { width: $1, height: $2 } })',
+    },
     // Env vars
     { pattern: /Cypress\.env\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g, replace: "process.env['$1']" },
     // cy.fixture
-    { pattern: /cy\.fixture\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g, replace: "// TODO: Load fixture '$1' - use JSON.parse(fs.readFileSync('fixtures/$1.json', 'utf-8'))" },
+    {
+        pattern: /cy\.fixture\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+        replace: "// TODO: Load fixture '$1' - use JSON.parse(fs.readFileSync('fixtures/$1.json', 'utf-8'))",
+    },
     // Intercept with alias
-    { pattern: /cy\.intercept\s*\(\s*['"`](\w+)['"`]\s*,\s*(['"`][^'"`]+['"`])\s*\)\.as\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g, replace: "await page.route($2, route => route.fulfill()) // alias: '$3', method: $1" },
+    {
+        pattern: /cy\.intercept\s*\(\s*['"`](\w+)['"`]\s*,\s*(['"`][^'"`]+['"`])\s*\)\.as\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+        replace: "await page.route($2, route => route.fulfill()) // alias: '$3', method: $1",
+    },
     // Simple intercept
-    { pattern: /cy\.intercept\s*\(\s*(['"`][^'"`]+['"`])\s*\)/g, replace: 'await page.route($1, route => route.fulfill())' },
+    {
+        pattern: /cy\.intercept\s*\(\s*(['"`][^'"`]+['"`])\s*\)/g,
+        replace: 'await page.route($1, route => route.fulfill())',
+    },
     // cy.request
-    { pattern: /cy\.request\s*\(\s*['"`](GET|POST|PUT|DELETE|PATCH)['"`]\s*,\s*([^)]+)\)/g, replace: 'await request.$1($2)' },
+    {
+        pattern: /cy\.request\s*\(\s*['"`](GET|POST|PUT|DELETE|PATCH)['"`]\s*,\s*([^)]+)\)/g,
+        replace: 'await request.$1($2)',
+    },
     { pattern: /cy\.request\s*\(\s*([^)]+)\)/g, replace: 'await request.get($1)' },
 ];
 function convertCypressToPlaywright(source) {
@@ -36284,8 +36539,8 @@ function convertCypressToPlaywright(source) {
         return `await request.${method.toLowerCase()}(`;
     });
     // Check for remaining unconverted patterns
-    const remainingCy = (code.match(/cy\.\w+/g) || []);
-    const remainingCypressEnv = (code.match(/Cypress\.\w+/g) || []);
+    const remainingCy = code.match(/cy\.\w+/g) || [];
+    const remainingCypressEnv = code.match(/Cypress\.\w+/g) || [];
     if (remainingCy.length > 0) {
         notes.push(`Unconverted Cypress commands: ${[...new Set(remainingCy)].join(', ')}`);
     }
@@ -36399,14 +36654,19 @@ async function postReport(token, prContext, report) {
 }
 /** One-line code span: markdown, HTML and mentions inside it render as text. */
 function inertText(text) {
-    const oneLine = text.replace(/[\r\n]+/g, ' ').replace(/`/g, "'").trim();
+    const oneLine = text
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/`/g, "'")
+        .trim();
     return '`' + oneLine + '`';
 }
 function buildReportBody(report) {
     const hasSuspectedBugs = (report.suspectedBugs?.length ?? 0) > 0;
     const statusEmoji = hasSuspectedBugs
         ? '🚨'
-        : report.generationError || report.testsFailed > 0 || (report.testsGenerated === 0 && !report.skippedReason)
+        : report.generationError ||
+            report.testsFailed > 0 ||
+            (report.testsGenerated === 0 && !report.skippedReason)
             ? '⚠️'
             : report.skippedReason && report.testsGenerated === 0
                 ? '⏭️'
@@ -36571,7 +36831,9 @@ function buildGeneratePrompt(context, baseUrl) {
         parts.push('## Components\n' + context.components.map((c) => `- ${c.name}`).join('\n') + '\n');
     }
     if (context.apiEndpoints.length) {
-        parts.push('## API Endpoints\n' + context.apiEndpoints.map((e) => `- ${e.method} ${e.path}`).join('\n') + '\n');
+        parts.push('## API Endpoints\n' +
+            context.apiEndpoints.map((e) => `- ${e.method} ${e.path}`).join('\n') +
+            '\n');
     }
     if (context.existingTests?.length) {
         parts.push('## Existing Tests\n' +
@@ -36806,7 +37068,10 @@ function parseHealVerdict(content) {
         const raw = JSON.parse(match[1]);
         const classification = raw.classification === 'app-bug-suspected' ? 'app-bug-suspected' : 'test-issue';
         const confidence = typeof raw.confidence === 'number' ? Math.min(Math.max(raw.confidence, 0), 1) : 0.5;
-        return { verdict: { classification, confidence, reasoning: String(raw.reasoning ?? '') }, rest };
+        return {
+            verdict: { classification, confidence, reasoning: String(raw.reasoning ?? '') },
+            rest,
+        };
     }
     catch {
         return { verdict: fallback, rest };
@@ -37173,7 +37438,11 @@ function buildVerdicts(report) {
         ...(report.suspectedBugs ?? []).map((b) => clip({ filename: b.filename, classification: 'app-bug-suspected', reasoning: b.reasoning })),
         ...(report.healedTests ?? [])
             .filter((t) => t.verdict)
-            .map((t) => clip({ filename: t.filename, classification: t.verdict.classification, reasoning: t.verdict.reasoning })),
+            .map((t) => clip({
+            filename: t.filename,
+            classification: t.verdict.classification,
+            reasoning: t.verdict.reasoning,
+        })),
     ];
     if (all.length > MAX_VERDICTS) {
         core.info(`📊 ${all.length} verdicts this run; the dashboard keeps ${MAX_VERDICTS} (suspected app bugs first). The PR report lists all of them.`);
@@ -37549,7 +37818,10 @@ async function healFailedTests(failedTests, context, config, llmClient, workDir,
                 currentTest = healedTest;
                 // A rerun that broke before the page loaded leaves no snapshot; the
                 // last page seen is still the best evidence for the next attempt.
-                currentResult = { ...healedResult, pageSnapshot: healedResult.pageSnapshot ?? currentResult.pageSnapshot };
+                currentResult = {
+                    ...healedResult,
+                    pageSnapshot: healedResult.pageSnapshot ?? currentResult.pageSnapshot,
+                };
                 healError = healedResult.error || 'Unknown error';
             }
             catch (error) {
@@ -37789,7 +38061,9 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
             session = { rotates: false, stopped: false };
     }
     core.info('🏃 Running tests...');
-    const initialResults = auth?.status === 'unreachable' ? (0, test_runner_1.appDownResults)(writtenTests, auth) : await (0, test_runner_1.runTests)(writtenTests, config, workDir, session);
+    const initialResults = auth?.status === 'unreachable'
+        ? (0, test_runner_1.appDownResults)(writtenTests, auth)
+        : await (0, test_runner_1.runTests)(writtenTests, config, workDir, session);
     // 4. Self-heal failed tests
     const failedTests = initialResults
         // Pair against writtenTests: runTests was given that array, so index i
@@ -37814,10 +38088,7 @@ async function generateAndRunTests(context, config, llmClient, workDir) {
     }
     // 5. Compile final results
     const passedInitial = initialResults.filter((r) => r.passed);
-    const allResults = [
-        ...passedInitial,
-        ...healedResults,
-    ];
+    const allResults = [...passedInitial, ...healedResults];
     const totalPassed = allResults.filter((r) => r.passed).length;
     const totalFailed = allResults.filter((r) => !r.passed).length;
     return {
@@ -37991,7 +38262,13 @@ function detectDevServer(workDir) {
     if (!script)
         return null;
     const has = (f) => fs.existsSync(path.join(workDir, f));
-    const runner = has('pnpm-lock.yaml') ? 'pnpm' : has('yarn.lock') ? 'yarn' : has('bun.lockb') || has('bun.lock') ? 'bun' : 'npm';
+    const runner = has('pnpm-lock.yaml')
+        ? 'pnpm'
+        : has('yarn.lock')
+            ? 'yarn'
+            : has('bun.lockb') || has('bun.lock')
+                ? 'bun'
+                : 'npm';
     // `npm start` is special-cased by npm; everything else needs `run`.
     const command = runner === 'npm' && script !== 'start' ? `npm run ${script}` : `${runner} ${script}`;
     return { command };
@@ -38099,7 +38376,11 @@ function ensurePlaywrightConfig(workDir, baseUrl, testDir, withAuthSetup = false
     const config = playwrightConfigSource({ baseUrl, testDir, withAuthSetup, devServer });
     fs.writeFileSync(path.join(workDir, 'playwright.config.ts'), config, 'utf-8');
     core.info(`⚙️ No Playwright config found — wrote a minimal playwright.config.ts (baseURL: ${baseUrl}` +
-        (devServer ? `, local webServer: ${devServer.command})` : devServer === null ? ', no start script in package.json for a local webServer)' : ')'));
+        (devServer
+            ? `, local webServer: ${devServer.command})`
+            : devServer === null
+                ? ', no start script in package.json for a local webServer)'
+                : ')'));
     return config;
 }
 /**
@@ -38150,7 +38431,12 @@ function readSetupSource(workDir, config) {
  * Give every test the one true reason instead, without running it.
  */
 function appDownResults(tests, auth) {
-    return tests.map((t) => (0, unreachable_1.unreachableResult)({ filename: t.filename, passed: false, duration: 0, error: (auth.output ?? '').substring(0, 1200) }, auth.origin ?? ''));
+    return tests.map((t) => (0, unreachable_1.unreachableResult)({
+        filename: t.filename,
+        passed: false,
+        duration: 0,
+        error: (auth.output ?? '').substring(0, 1200),
+    }, auth.origin ?? ''));
 }
 /**
  * Sign in before the suite runs. Specs are executed one file at a time
@@ -38391,7 +38677,10 @@ function readPageSnapshot(output, workDir, specFile) {
         const location = info?.match(/^- Location:\s*(\S+?):\d+/m)?.[1];
         if (specFile && location && !sameSpec(workDir, location, specFile))
             continue;
-        const tree = sections.get('Page snapshot')?.replace(/^```\w*\s*$/gm, '').trim();
+        const tree = sections
+            .get('Page snapshot')
+            ?.replace(/^```\w*\s*$/gm, '')
+            .trim();
         if (!tree)
             continue;
         // Playwright names the result folder <spec>-<test>-<project>, so it tells
@@ -38400,7 +38689,12 @@ function readPageSnapshot(output, workDir, specFile) {
         const folder = path.basename(path.dirname(file)).replace(/-retry\d+$/, '');
         const name = info?.match(/^- Name:\s*(.+)$/m)?.[1].trim() ?? folder;
         // a later retry replaces the earlier attempt's page
-        byTest.set(`${name}\u0000${folder}`, { name, folder, tree, navigation: lastNavigation(sections.get('Test source')) });
+        byTest.set(`${name}\u0000${folder}`, {
+            name,
+            folder,
+            tree,
+            navigation: lastNavigation(sections.get('Test source')),
+        });
     }
     if (byTest.size === 0)
         return undefined;
@@ -38413,7 +38707,9 @@ function readPageSnapshot(output, workDir, specFile) {
     // would otherwise drop it first on a large page. Name and folder are cut
     // separately so a long test name cannot push the project off the header.
     const headers = entries.map((e) => {
-        const label = repeated.has(e.name) ? `${cut(e.name, 150)} (${cut(e.folder, 45)})` : cut(e.name, 200);
+        const label = repeated.has(e.name)
+            ? `${cut(e.name, 150)} (${cut(e.folder, 45)})`
+            : cut(e.name, 200);
         return (labelled ? `# ${label}\n` : '') + (e.navigation ? `${e.navigation}\n` : '');
     });
     // Headers come out of the budget first, but every tree keeps a usable share.
@@ -38428,7 +38724,7 @@ function readPageSnapshot(output, workDir, specFile) {
  */
 function sameSpec(workDir, location, specFile) {
     const spec = path.resolve(workDir, specFile);
-    return path.resolve(workDir, location) === spec || spec.endsWith(path.sep + path.normalize(location));
+    return (path.resolve(workDir, location) === spec || spec.endsWith(path.sep + path.normalize(location)));
 }
 /** Cut to at most max UTF-16 units without leaving half a surrogate pair, which JSON sends as a lone \\ud83d. */
 function cut(text, max) {
@@ -38507,7 +38803,10 @@ function fitSnapshot(tree, budget) {
         size += lines[i].length + 1;
     }
     // Back in document order, so nesting still reads as a tree.
-    return kept.sort((a, b) => a - b).map((i) => lines[i]).join('\n') + marker;
+    return (kept
+        .sort((a, b) => a - b)
+        .map((i) => lines[i])
+        .join('\n') + marker);
 }
 async function runSpec(test, filePath, config, workDir) {
     const startTime = Date.now();
@@ -38574,7 +38873,11 @@ async function runTests(tests, config, workDir, session) {
         if (authed && session.rotates)
             await renewSession(workDir, config, session);
         let result = await runSpec(test, filePath, config, workDir);
-        if (authed && !result.passed && looksSignedOut(`${result.error ?? ''}\n${result.stdout ?? ''}`) && !session.rotates && !session.stopped) {
+        if (authed &&
+            !result.passed &&
+            looksSignedOut(`${result.error ?? ''}\n${result.stdout ?? ''}`) &&
+            !session.rotates &&
+            !session.stopped) {
             core.info(`🔐 ${test.filename}: signing in again and re-running it once, in case the shared session was revoked`);
             if (await renewSession(workDir, config, session)) {
                 result = await runSpec(test, filePath, config, workDir);

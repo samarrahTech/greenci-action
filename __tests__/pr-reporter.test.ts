@@ -35,7 +35,12 @@ const report: RunReport = {
   tests: [
     { filename: 'e2e/a.spec.ts', passed: true, duration: 3000 },
     { filename: 'e2e/b.spec.ts', passed: true, duration: 4000 },
-    { filename: 'e2e/c.spec.ts', passed: false, duration: 3000, error: 'Timeout\nwaiting for selector' },
+    {
+      filename: 'e2e/c.spec.ts',
+      passed: false,
+      duration: 3000,
+      error: 'Timeout\nwaiting for selector',
+    },
   ],
   committedFiles: ['e2e/a.spec.ts', 'e2e/b.spec.ts'],
 };
@@ -48,7 +53,9 @@ describe('postReport', () => {
 
   it('should create a new comment when none exists', async () => {
     mockOctokit.rest.issues.listComments.mockResolvedValue({ data: [] });
-    mockOctokit.rest.issues.createComment.mockResolvedValue({ data: { html_url: 'https://github.com/comment/1' } });
+    mockOctokit.rest.issues.createComment.mockResolvedValue({
+      data: { html_url: 'https://github.com/comment/1' },
+    });
 
     const url = await postReport('mock-token', prContext, report);
     expect(url).toBe('https://github.com/comment/1');
@@ -61,7 +68,9 @@ describe('postReport', () => {
     mockOctokit.rest.issues.listComments.mockResolvedValue({
       data: [{ id: 99, body: '<!-- greenci-report -->\nold report' }],
     });
-    mockOctokit.rest.issues.updateComment.mockResolvedValue({ data: { html_url: 'https://github.com/comment/99' } });
+    mockOctokit.rest.issues.updateComment.mockResolvedValue({
+      data: { html_url: 'https://github.com/comment/99' },
+    });
 
     const url = await postReport('mock-token', prContext, report);
     expect(url).toBe('https://github.com/comment/99');
@@ -98,11 +107,19 @@ describe('postReport', () => {
           code: 'fixed',
           description: 'healed',
           confidence: 0.9,
-          verdict: { classification: 'test-issue', confidence: 0.9, reasoning: 'selector drifted after refactor' },
+          verdict: {
+            classification: 'test-issue',
+            confidence: 0.9,
+            reasoning: 'selector drifted after refactor',
+          },
         },
       ],
       suspectedBugs: [
-        { filename: 'e2e/c.spec.ts', reasoning: 'checkout endpoint returns 500', error: 'HTTP 500' },
+        {
+          filename: 'e2e/c.spec.ts',
+          reasoning: 'checkout endpoint returns 500',
+          error: 'HTTP 500',
+        },
       ],
     };
     await postReport('mock-token', prContext, verdictReport);
@@ -130,7 +147,15 @@ describe('postReport', () => {
   });
 
   describe('zero-test runs say why', () => {
-    const empty: RunReport = { ...report, testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, tests: [], committedFiles: [] };
+    const empty: RunReport = {
+      ...report,
+      testsGenerated: 0,
+      testsPassed: 0,
+      testsFailed: 0,
+      testsHealed: 0,
+      tests: [],
+      committedFiles: [],
+    };
     const bodyFor = async (r: RunReport) => {
       mockOctokit.rest.issues.listComments.mockResolvedValue({ data: [] });
       mockOctokit.rest.issues.createComment.mockResolvedValue({ data: { html_url: 'url' } });
@@ -141,21 +166,32 @@ describe('postReport', () => {
     it('shows the decline reason with a skipped status, not a green check', async () => {
       const body = await bodyFor({ ...empty, skippedReason: 'Only PostHog config changed.' });
       expect(body).toContain('## ⏭️ GreenCI E2E Test Report');
-      expect(body).toContain("Nothing to test in this diff.** Model's reason: `Only PostHog config changed.`");
+      expect(body).toContain(
+        "Nothing to test in this diff.** Model's reason: `Only PostHog config changed.`"
+      );
     });
 
     it('renders the model-supplied reason inert, on one line, without backticks escaping the span', async () => {
-      const body = await bodyFor({ ...empty, skippedReason: 'see ![x](https://evil/p.png)\n`@org/team`' });
+      const body = await bodyFor({
+        ...empty,
+        skippedReason: 'see ![x](https://evil/p.png)\n`@org/team`',
+      });
       expect(body).toContain("`see ![x](https://evil/p.png) '@org/team'`");
     });
 
     it('does not show a green check when every generated test was rejected', async () => {
-      const body = await bodyFor({ ...empty, rejectedTests: [{ filename: 'a.spec.ts', reason: 'no expect()' }] });
+      const body = await bodyFor({
+        ...empty,
+        rejectedTests: [{ filename: 'a.spec.ts', reason: 'no expect()' }],
+      });
       expect(body).toContain('## ⚠️ GreenCI E2E Test Report');
     });
 
-    it('shows a generation failure as a warning that is not the PR\'s fault', async () => {
-      const body = await bodyFor({ ...empty, generationError: 'the model returned no usable test code twice' });
+    it("shows a generation failure as a warning that is not the PR's fault", async () => {
+      const body = await bodyFor({
+        ...empty,
+        generationError: 'the model returned no usable test code twice',
+      });
       expect(body).toContain('## ⚠️ GreenCI E2E Test Report');
       expect(body).toContain('could not generate tests for this diff');
       expect(body).toContain('Your PR did not cause this');

@@ -22,7 +22,7 @@ export async function uploadTraces(
   projectId: string,
   runId: string,
   /** The run's page-snapshot setting; false adds the notice below. */
-  sendPageSnapshot = true,
+  sendPageSnapshot = true
 ): Promise<void> {
   const traceFiles = findZipFiles(testResultsDir);
   if (traceFiles.length === 0) {
@@ -37,7 +37,7 @@ export async function uploadTraces(
   if (!sendPageSnapshot) {
     core.warning(
       `page-snapshot is false, but project-id is set: ${traceFiles.length} Playwright trace archive(s) are still uploaded, ` +
-        'and they contain DOM snapshots and screenshots of failing pages. Remove project-id to keep page content on the runner.',
+        'and they contain DOM snapshots and screenshots of failing pages. Remove project-id to keep page content on the runner.'
     );
   }
 
@@ -49,7 +49,9 @@ export async function uploadTraces(
       // The API rejects traces over 50MB — skip early instead of base64-encoding them
       const { size } = fs.statSync(filePath);
       if (size > MAX_TRACE_SIZE) {
-        core.warning(`Skipping ${testFilename}: ${(size / 1024 / 1024).toFixed(1)}MB exceeds the 50MB trace limit`);
+        core.warning(
+          `Skipping ${testFilename}: ${(size / 1024 / 1024).toFixed(1)}MB exceeds the 50MB trace limit`
+        );
         continue;
       }
       const fileBase64 = fs.readFileSync(filePath).toString('base64');
@@ -73,7 +75,9 @@ export async function uploadTraces(
         core.info(`  ✅ Uploaded ${testFilename}`);
       }
     } catch (err) {
-      core.warning(`Trace upload error for ${testFilename}: ${err instanceof Error ? err.message : err}`);
+      core.warning(
+        `Trace upload error for ${testFilename}: ${err instanceof Error ? err.message : err}`
+      );
     }
   }
 }

@@ -41,7 +41,11 @@ export interface ResolvedTestPath {
  * the only check that actually holds — prefix-stripping and `..` counting are
  * both bypassable.
  */
-export function resolveTestPath(workDir: string, testDir: string, filename: string): ResolvedTestPath {
+export function resolveTestPath(
+  workDir: string,
+  testDir: string,
+  filename: string
+): ResolvedTestPath {
   if (typeof filename !== 'string' || filename.trim() === '') {
     throw new UnsafeTestPathError(String(filename), 'empty or not a string');
   }
@@ -114,7 +118,10 @@ export function assertSafeToWrite(root: string, absolute: string): void {
 
   // The parent chain must not escape via a link either.
   if (!isInsideRoot(root, path.dirname(absolute))) {
-    throw new UnsafeTestPathError(absolute, 'resolves outside the test directory via a symlinked parent');
+    throw new UnsafeTestPathError(
+      absolute,
+      'resolves outside the test directory via a symlinked parent'
+    );
   }
 }
 

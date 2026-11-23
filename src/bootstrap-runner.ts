@@ -1,11 +1,34 @@
 import * as core from '@actions/core';
 import * as path from 'path';
-import { savePlaywrightDevDependency, restoreFiles, type DependencyOutcome } from './dev-dependency';
+import {
+  savePlaywrightDevDependency,
+  restoreFiles,
+  type DependencyOutcome,
+} from './dev-dependency';
 import { ActionConfig, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
 import { parseJourneys, fetchPages } from './bootstrap-context';
-import { needsAuthScaffold, writeAuthScaffold, loginPathFromJourneys, AUTH_SETUP_FILENAME, type AuthFailureKind } from './auth-scaffold';
+import {
+  needsAuthScaffold,
+  writeAuthScaffold,
+  loginPathFromJourneys,
+  AUTH_SETUP_FILENAME,
+  type AuthFailureKind,
+} from './auth-scaffold';
 import { readExistingTests, formatExistingTestsForAPI, type RenamedTest } from './existing-tests';
-import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, appDownResults, type SessionRenewal, writeTests, detectDevServer, playwrightConfigSource, type AuthSessionResult, type AuthSessionStatus, type ProtectExisting } from './test-runner';
+import {
+  ensurePlaywright,
+  ensurePlaywrightConfig,
+  ensureAuthSession,
+  runTests,
+  appDownResults,
+  type SessionRenewal,
+  writeTests,
+  detectDevServer,
+  playwrightConfigSource,
+  type AuthSessionResult,
+  type AuthSessionStatus,
+  type ProtectExisting,
+} from './test-runner';
 import { healFailedTests } from './self-healer';
 import { createBootstrapPR, unchangedOnDefaultBranch } from './git-ops';
 import { resolveTestPath } from './safe-paths';
@@ -31,7 +54,7 @@ export async function runBootstrap(
   llmClient: ILLMClient,
   workDir: string,
   token: string,
-  repo: { owner: string; repo: string },
+  repo: { owner: string; repo: string }
 ): Promise<BootstrapOutcome> {
   if (!llmClient.bootstrapTests) {
     throw new Error(`The '${config.llmProvider}' provider does not support bootstrap mode.`);
@@ -45,23 +68,27 @@ export async function runBootstrap(
   if (pages.length === 0) {
     core.warning(
       `Could not fetch any pages from ${config.baseUrl} — is your app running in CI? ` +
-        'Generation will proceed but selectors will be less grounded.',
+        'Generation will proceed but selectors will be less grounded.'
     );
   }
 
   const existing = readExistingTests(workDir, config.testDir);
   const existingTests = existing.length > 0 ? formatExistingTestsForAPI(existing) : undefined;
 
-  const proposed = (await llmClient.bootstrapTests(journeys, pages, config, existingTests)).filter((t) => {
-    // The login setup is ours (or the customer's), never model output: a
-    // generated file under that name would otherwise be run as the sign-in
-    // step and win over the template.
-    if (path.basename(t.filename) === AUTH_SETUP_FILENAME) {
-      core.warning(`Dropping generated ${t.filename}: ${AUTH_SETUP_FILENAME} is provided by the pipeline`);
-      return false;
+  const proposed = (await llmClient.bootstrapTests(journeys, pages, config, existingTests)).filter(
+    (t) => {
+      // The login setup is ours (or the customer's), never model output: a
+      // generated file under that name would otherwise be run as the sign-in
+      // step and win over the template.
+      if (path.basename(t.filename) === AUTH_SETUP_FILENAME) {
+        core.warning(
+          `Dropping generated ${t.filename}: ${AUTH_SETUP_FILENAME} is provided by the pipeline`
+        );
+        return false;
+      }
+      return true;
     }
-    return true;
-  });
+  );
   // A spec that cannot fail would be committed as "passing" and read by the
   // customer as proof the suite is hollow. Drop it before it touches disk.
   const { kept: generatedTests, rejected } = rejectTautologies(proposed);
@@ -74,10 +101,17 @@ export async function runBootstrap(
       // Nothing to open a PR with, so the log is the only place this can go.
       core.warning(
         `All ${rejected.length} generated spec(s) were discarded because none contained an assertion that could fail. ` +
-          'Nothing was written. Re-run the bootstrap, or make the journeys more concrete (name the thing the user should see).',
+          'Nothing was written. Re-run the bootstrap, or make the journeys more concrete (name the thing the user should see).'
       );
     }
-    return { testsGenerated: 0, testsPassed: 0, testsFailed: 0, testsHealed: 0, prUrl: null, rejected };
+    return {
+      testsGenerated: 0,
+      testsPassed: 0,
+      testsFailed: 0,
+      testsHealed: 0,
+      prUrl: null,
+      rejected,
+    };
   }
 
   // Never rewrite a spec the customer already has (see ProtectExisting).
@@ -97,7 +131,7 @@ export async function runBootstrap(
     core.info(
       scaffold.created
         ? `🔐 Authenticated journeys detected — wrote ${config.testDir}/${AUTH_SETUP_FILENAME} (login page: ${loginPath})`
-        : `🔐 Authenticated journeys detected — keeping your existing ${config.testDir}/${AUTH_SETUP_FILENAME} (not overwritten)`,
+        : `🔐 Authenticated journeys detected — keeping your existing ${config.testDir}/${AUTH_SETUP_FILENAME} (not overwritten)`
     );
   }
 
@@ -105,19 +139,30 @@ export async function runBootstrap(
   const installedPlaywright = await ensurePlaywright(workDir);
   // This config may be committed (auth) or shown in the PR: give it the
   // local-run webServer block when the repo tells us how to start the app.
-  const configSource = ensurePlaywrightConfig(workDir, config.baseUrl, config.testDir, withAuth, detectDevServer(workDir));
+  const configSource = ensurePlaywrightConfig(
+    workDir,
+    config.baseUrl,
+    config.testDir,
+    withAuth,
+    detectDevServer(workDir)
+  );
   const createdConfig = configSource !== null;
 
   // Specs run one file at a time, so produce the session up front instead of
   // relying on the customer's config to route each new spec through setup.
-  const authSession: AuthSessionResult | null = withAuth ? await ensureAuthSession(workDir, config) : null;
+  const authSession: AuthSessionResult | null = withAuth
+    ? await ensureAuthSession(workDir, config)
+    : null;
 
   // Only a session that signed in is worth renewing (see SessionRenewal).
-  const session: SessionRenewal | undefined = authSession?.status === 'ok' ? { rotates: false, stopped: false } : undefined;
+  const session: SessionRenewal | undefined =
+    authSession?.status === 'ok' ? { rotates: false, stopped: false } : undefined;
 
   core.info('🏃 Running the bootstrap suite...');
   const initialResults =
-    authSession?.status === 'unreachable' ? appDownResults(generatedTests, authSession) : await runTests(generatedTests, config, workDir, session);
+    authSession?.status === 'unreachable'
+      ? appDownResults(generatedTests, authSession)
+      : await runTests(generatedTests, config, workDir, session);
 
   const failedTests = initialResults
     .map((result, i) => ({ test: generatedTests[i], result }))
@@ -130,8 +175,17 @@ export async function runBootstrap(
   // Even with healing disabled (maxRetries 0) the auth classification is
   // deterministic and free — it decides what the PR tells the customer.
   if (failedTests.length > 0) {
-    if (config.maxRetries > 0) core.info(`🔧 Healing ${failedTests.length} failing bootstrap test(s)...`);
-    const healing = await healFailedTests(failedTests, emptyChangeContext(), config, llmClient, workDir, protect, session);
+    if (config.maxRetries > 0)
+      core.info(`🔧 Healing ${failedTests.length} failing bootstrap test(s)...`);
+    const healing = await healFailedTests(
+      failedTests,
+      emptyChangeContext(),
+      config,
+      llmClient,
+      workDir,
+      protect,
+      session
+    );
     healed = healing.healed;
     healedResults = healing.results;
     suspectedBugs = healing.suspectedBugs;
@@ -143,7 +197,9 @@ export async function runBootstrap(
   // wiring problem — report it as such, with the setup's own output.
   if (authSession?.status === 'failed') {
     authBlocked = authBlocked.map((a) =>
-      a.kind === 'setup-not-run' ? { ...a, kind: 'setup-failed' as const, error: authSession.output } : a,
+      a.kind === 'setup-not-run'
+        ? { ...a, kind: 'setup-failed' as const, error: authSession.output }
+        : a
     );
   }
 
@@ -176,10 +232,13 @@ export async function runBootstrap(
   let dependency: DependencyOutcome = { status: 'manual', files: [] };
   if (installedPlaywright && config.autoCommit && token && passingFiles.length > 0) {
     dependency = await savePlaywrightDevDependency(workDir);
-    if (dependency.status === 'saved' && !(await unchangedOnDefaultBranch(token, repo.owner, repo.repo, workDir, dependency.files))) {
+    if (
+      dependency.status === 'saved' &&
+      !(await unchangedOnDefaultBranch(token, repo.owner, repo.repo, workDir, dependency.files))
+    ) {
       core.warning(
         'package.json or the lockfile in this checkout is not what the default branch holds, so the @playwright/test ' +
-          'dependency is left out of the PR (it would carry the other differences too). The PR explains how to add it by hand',
+          'dependency is left out of the PR (it would carry the other differences too). The PR explains how to add it by hand'
       );
       // Later workflow steps must not find a half-applied change either.
       restoreFiles(dependency.files);
@@ -205,7 +264,14 @@ export async function runBootstrap(
       rejected,
       configSource: configSource ?? undefined,
     });
-    const result = await createBootstrapPR(token, repo.owner, repo.repo, commitFiles, workDir, body);
+    const result = await createBootstrapPR(
+      token,
+      repo.owner,
+      repo.repo,
+      commitFiles,
+      workDir,
+      body
+    );
     prUrl = result.prUrl;
   } else if (passingFiles.length === 0) {
     core.warning('No bootstrap tests passed — nothing committed. See the run log for failures.');
@@ -248,7 +314,7 @@ export function buildBootstrapPRBody(
     rejected?: RejectedTest[];
     /** The config this run wrote, when it wrote one — shown verbatim so the local copy matches. */
     configSource?: string;
-  },
+  }
 ): string {
   let body = '## 🌱 Foundational E2E suite generated by GreenCI\n\n';
   body += 'This PR contains the **verified-passing** starter suite for your critical journeys. ';
@@ -270,11 +336,16 @@ export function buildBootstrapPRBody(
     body += '\n';
   }
 
-  const renamedCommitted = (setup.renamed ?? []).filter((r) => passed.some((p) => p.filename === r.to));
+  const renamedCommitted = (setup.renamed ?? []).filter((r) =>
+    passed.some((p) => p.filename === r.to)
+  );
   if (renamedCommitted.length > 0) {
     body += '### ✋ Kept your existing tests\n';
-    body += 'These journeys produced a file with the same name as a test already in your repo. GreenCI never overwrites your tests, so the new one was committed alongside it. Diff the pair and keep the one you prefer:\n\n';
-    body += renamedCommitted.map((r) => `- \`${r.from}\` (yours) → \`${r.to}\` (generated)`).join('\n') + '\n\n';
+    body +=
+      'These journeys produced a file with the same name as a test already in your repo. GreenCI never overwrites your tests, so the new one was committed alongside it. Diff the pair and keep the one you prefer:\n\n';
+    body +=
+      renamedCommitted.map((r) => `- \`${r.from}\` (yours) → \`${r.to}\` (generated)`).join('\n') +
+      '\n\n';
   }
 
   body += renderRejectedSection(setup.rejected);
@@ -289,12 +360,19 @@ export function buildBootstrapPRBody(
   if (signInFailed.length > 0) {
     body += '### 🔐 ' + signInFailed.length + ' journey(s) blocked: sign-in did not complete\n';
     body += signInFailed.map((a) => `- \`${a.filename}\``).join('\n') + '\n\n';
-    body += 'The login setup (`' + setup.testDir + '/auth.setup.ts`) ran but never got past the login page, so these journeys could not run. Likely causes, in order:\n\n';
+    body +=
+      'The login setup (`' +
+      setup.testDir +
+      '/auth.setup.ts`) ran but never got past the login page, so these journeys could not run. Likely causes, in order:\n\n';
     body += '- The test credentials are wrong, or the account is locked/unverified\n';
-    body += '- Your login endpoint is **rate-limiting** the run (CI signs in repeatedly from one IP)\n';
+    body +=
+      '- Your login endpoint is **rate-limiting** the run (CI signs in repeatedly from one IP)\n';
     body += '- Sign-in is genuinely broken — worth checking by hand\n\n';
     if (setup.authSetupOutput) {
-      body += 'The sign-in step (“Signing in via auth.setup.ts” in the workflow log) failed with:\n\n```\n' + setup.authSetupOutput.trim().substring(0, 1200) + '\n```\n\n';
+      body +=
+        'The sign-in step (“Signing in via auth.setup.ts” in the workflow log) failed with:\n\n```\n' +
+        setup.authSetupOutput.trim().substring(0, 1200) +
+        '\n```\n\n';
     } else {
       body += 'The exact error is in the workflow log under the `[setup]` project. ';
     }
@@ -304,48 +382,65 @@ export function buildBootstrapPRBody(
   if (notRun.length > 0) {
     body += '### 🔐 ' + notRun.length + ' journey(s) blocked: no signed-in session was available\n';
     body += notRun.map((a) => `- \`${a.filename}\``).join('\n') + '\n\n';
-    body += '`TEST_USER_EMAIL` / `TEST_USER_PASSWORD` are set, but no `playwright/.auth/user.json` session existed when these specs ran.\n\n';
+    body +=
+      '`TEST_USER_EMAIL` / `TEST_USER_PASSWORD` are set, but no `playwright/.auth/user.json` session existed when these specs ran.\n\n';
     if (setup.authSetupStatus === 'no-session-file') {
-      body += 'The login setup (`' + setup.testDir + '/auth.setup.ts`) ran and exited cleanly but did not write `playwright/.auth/user.json` — it saves the session somewhere else, or skips on a condition of its own. ';
-      body += 'Make it end with `await page.context().storageState({ path: \'playwright/.auth/user.json\' })`, or point the specs\' `test.use({ storageState })` at the path it does write.\n\n';
+      body +=
+        'The login setup (`' +
+        setup.testDir +
+        '/auth.setup.ts`) ran and exited cleanly but did not write `playwright/.auth/user.json` — it saves the session somewhere else, or skips on a condition of its own. ';
+      body +=
+        "Make it end with `await page.context().storageState({ path: 'playwright/.auth/user.json' })`, or point the specs' `test.use({ storageState })` at the path it does write.\n\n";
     } else if (setup.authSetupStatus === 'ok') {
-      body += 'The login setup ran and wrote `playwright/.auth/user.json`, but the specs could not read it. Playwright resolves `storageState` relative to the directory holding `playwright.config.ts`: if your config lives in a subdirectory, save the session relative to that directory (or use an absolute path in both places).\n\n';
+      body +=
+        'The login setup ran and wrote `playwright/.auth/user.json`, but the specs could not read it. Playwright resolves `storageState` relative to the directory holding `playwright.config.ts`: if your config lives in a subdirectory, save the session relative to that directory (or use an absolute path in both places).\n\n';
     } else {
-      body += 'The login setup (`' + setup.testDir + '/auth.setup.ts`) did not run before these specs. ';
+      body +=
+        'The login setup (`' + setup.testDir + '/auth.setup.ts`) did not run before these specs. ';
       if (setup.authSetupStatus === 'not-wired') {
         body += 'No project in your `playwright.config.ts` matches `auth.setup.ts`. ';
       }
       body += 'Add a `setup` project and make the project that runs these specs depend on it:\n\n';
-      body += '```ts\n  projects: [\n    { name: \'setup\', testMatch: /auth\\.setup\\.ts/ },\n    { name: \'chromium\', dependencies: [\'setup\'] },\n  ],\n```\n\n';
+      body +=
+        "```ts\n  projects: [\n    { name: 'setup', testMatch: /auth\\.setup\\.ts/ },\n    { name: 'chromium', dependencies: ['setup'] },\n  ],\n```\n\n";
     }
-    body += 'Then re-run the **GreenCI Bootstrap** workflow — a follow-up PR will include the authenticated journeys.\n\n';
+    body +=
+      'Then re-run the **GreenCI Bootstrap** workflow — a follow-up PR will include the authenticated journeys.\n\n';
   }
 
   if (needsCreds.length > 0) {
     body += '### 🔐 ' + needsCreds.length + ' journey(s) need login credentials\n';
     body += needsCreds.map((a) => `- \`${a.filename}\``).join('\n') + '\n\n';
-    body += 'A ready-made login setup (`' + setup.testDir + '/auth.setup.ts`) is included in this PR. To activate these tests:\n\n';
+    body +=
+      'A ready-made login setup (`' +
+      setup.testDir +
+      '/auth.setup.ts`) is included in this PR. To activate these tests:\n\n';
     body += '1. Create a **dedicated test user** in your app (never a real account)\n';
-    body += '2. Add two repository secrets (Settings → Secrets and variables → Actions): `TEST_USER_EMAIL` and `TEST_USER_PASSWORD`\n';
+    body +=
+      '2. Add two repository secrets (Settings → Secrets and variables → Actions): `TEST_USER_EMAIL` and `TEST_USER_PASSWORD`\n';
     body += '3. Expose them on the GreenCI workflow step:\n\n';
-    body += '```yaml\n        env:\n          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}\n          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}\n```\n\n';
-    body += '4. Re-run the **GreenCI Bootstrap** workflow — a follow-up PR will include the authenticated journeys.\n\n';
+    body +=
+      '```yaml\n        env:\n          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}\n          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}\n```\n\n';
+    body +=
+      '4. Re-run the **GreenCI Bootstrap** workflow — a follow-up PR will include the authenticated journeys.\n\n';
     body += 'Your credentials stay in your repo and your CI runner — they never touch GreenCI.\n\n';
   }
 
   if (otherFailed.length > 0) {
     body += '### Failing tests (see the workflow log)\n';
     body += otherFailed.map((f) => `- \`${f.filename}\``).join('\n') + '\n\n';
-    body += 'Common causes: pages that need seeded data, or flows the captured pages did not cover.\n\n';
+    body +=
+      'Common causes: pages that need seeded data, or flows the captured pages did not cover.\n\n';
   }
 
   if (setup.installedPlaywright || setup.createdConfig) {
     body += '### One-time setup to run these locally\n';
     if (setup.dependency === 'saved' && setup.savedDependency && setup.savedDependency.length > 0) {
       body += `This repo didn't have Playwright yet. This PR adds \`@playwright/test\` to \`devDependencies\` (${setup.savedDependency.map((f) => `\`${f}\``).join(', ')}), so after merging, install as usual and fetch the browser:\n\n`;
-      body += '```bash\nnpm install   # or your package manager\nnpx playwright install chromium\n```\n\n';
+      body +=
+        '```bash\nnpm install   # or your package manager\nnpx playwright install chromium\n```\n\n';
     } else if (setup.installedPlaywright && setup.dependency !== 'declared') {
-      body += 'This repo didn\'t have Playwright yet (GreenCI installed it just for this run):\n\n';
+      body += "This repo didn't have Playwright yet (GreenCI installed it just for this run):\n\n";
       body += '```bash\nnpm install -D @playwright/test\nnpx playwright install chromium\n```\n\n';
     } else {
       // Playwright is already a dependency (installed, or declared but not
@@ -356,14 +451,18 @@ export function buildBootstrapPRBody(
     // With auth the generated config is part of this PR (it carries the
     // setup project); otherwise the customer adds it by hand.
     if (setup.createdConfig && setup.withAuth) {
-      body += 'The `playwright.config.ts` in this PR wires the login setup and, when a start script was found, starts your app for local runs (`webServer`).\n\n';
+      body +=
+        'The `playwright.config.ts` in this PR wires the login setup and, when a start script was found, starts your app for local runs (`webServer`).\n\n';
     } else if (setup.createdConfig) {
-      const snippet = setup.configSource ?? playwrightConfigSource({ baseUrl: setup.baseUrl, testDir: setup.testDir });
+      const snippet =
+        setup.configSource ??
+        playwrightConfigSource({ baseUrl: setup.baseUrl, testDir: setup.testDir });
       body += `And add a \`playwright.config.ts\`:\n\n\`\`\`ts\n${snippet.trimEnd()}\n\`\`\`\n\n`;
     }
     body += `Then run the suite with \`npx playwright test\`.\n\n`;
   }
 
-  body += '---\n*Generated by [GreenCI](https://greenci.ai) 🌱 — future PRs will keep this suite up to date automatically.*\n';
+  body +=
+    '---\n*Generated by [GreenCI](https://greenci.ai) 🌱 — future PRs will keep this suite up to date automatically.*\n';
   return body;
 }

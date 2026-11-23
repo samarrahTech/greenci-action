@@ -23,7 +23,9 @@ const mockContext: ChangeContext = {
   routes: [],
   components: [],
   apiEndpoints: [],
-  modifiedFiles: [{ filename: 'src/app.ts', status: 'modified', additions: 1, deletions: 0, patch: '+x' }],
+  modifiedFiles: [
+    { filename: 'src/app.ts', status: 'modified', additions: 1, deletions: 0, patch: '+x' },
+  ],
   summary: '',
 };
 
@@ -48,7 +50,9 @@ describe('OpenAIClient', () => {
   it('generates tests from parsed code blocks and calls OpenAI directly', async () => {
     const client = new OpenAIClient('sk-test');
     (global.fetch as jest.Mock).mockResolvedValue(
-      openaiResponse('```typescript\n// filename: app.spec.ts\ntest.describe("App", () => {});\n```'),
+      openaiResponse(
+        '```typescript\n// filename: app.spec.ts\ntest.describe("App", () => {});\n```'
+      )
     );
 
     const { tests } = await client.generateTests(mockContext, mockConfig);
@@ -64,7 +68,9 @@ describe('OpenAIClient', () => {
   });
 
   it('returns the decline reason when the model declines the diff', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue(openaiResponse('NO_TESTS: only analytics config changed'));
+    (global.fetch as jest.Mock).mockResolvedValue(
+      openaiResponse('NO_TESTS: only analytics config changed')
+    );
     const client = new OpenAIClient('sk-test');
     await expect(client.generateTests(mockContext, mockConfig)).resolves.toEqual({
       tests: [],
@@ -73,7 +79,9 @@ describe('OpenAIClient', () => {
   });
 
   it('reports a generation error, not a prose spec, when the model answers in prose', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue(openaiResponse('No tests are needed for this change.'));
+    (global.fetch as jest.Mock).mockResolvedValue(
+      openaiResponse('No tests are needed for this change.')
+    );
     const client = new OpenAIClient('sk-test');
     const result = await client.generateTests(mockContext, mockConfig);
     expect(result.tests).toEqual([]);
@@ -82,7 +90,9 @@ describe('OpenAIClient', () => {
 
   it('respects the llm-model override', async () => {
     const client = new OpenAIClient('sk-test');
-    (global.fetch as jest.Mock).mockResolvedValue(openaiResponse('```ts\ntest("x", () => {});\n```'));
+    (global.fetch as jest.Mock).mockResolvedValue(
+      openaiResponse('```ts\ntest("x", () => {});\n```')
+    );
     await client.generateTests(mockContext, { ...mockConfig, llmModel: 'gpt-4.1' });
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
     expect(body.model).toBe('gpt-4.1');
@@ -92,8 +102,8 @@ describe('OpenAIClient', () => {
     const client = new OpenAIClient('sk-test');
     (global.fetch as jest.Mock).mockResolvedValue(
       openaiResponse(
-        'VERDICT: {"classification":"test-issue","confidence":0.9,"reasoning":"strict mode"}\n```ts\nfixed code\n```',
-      ),
+        'VERDICT: {"classification":"test-issue","confidence":0.9,"reasoning":"strict mode"}\n```ts\nfixed code\n```'
+      )
     );
 
     const healed = await client.healTest(
@@ -103,7 +113,7 @@ describe('OpenAIClient', () => {
         attempt: 1,
         context: mockContext,
       },
-      mockConfig,
+      mockConfig
     );
     expect(healed.code).toBe('fixed code');
     expect(healed.verdict?.classification).toBe('test-issue');
@@ -113,8 +123,8 @@ describe('OpenAIClient', () => {
     const client = new OpenAIClient('sk-test');
     (global.fetch as jest.Mock).mockResolvedValue(
       openaiResponse(
-        'VERDICT: {"classification":"app-bug-suspected","confidence":0.8,"reasoning":"API 500"}\n```ts\nrewritten\n```',
-      ),
+        'VERDICT: {"classification":"app-bug-suspected","confidence":0.8,"reasoning":"API 500"}\n```ts\nrewritten\n```'
+      )
     );
 
     const healed = await client.healTest(
@@ -124,7 +134,7 @@ describe('OpenAIClient', () => {
         attempt: 1,
         context: mockContext,
       },
-      mockConfig,
+      mockConfig
     );
     expect(healed.code).toBe('original code');
     expect(healed.verdict?.classification).toBe('app-bug-suspected');
@@ -132,7 +142,13 @@ describe('OpenAIClient', () => {
 
   it('throws on API errors with status and detail', async () => {
     const client = new OpenAIClient('sk-test');
-    (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 429, text: async () => 'rate limited' });
-    await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow('OpenAI API returned 429');
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: async () => 'rate limited',
+    });
+    await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow(
+      'OpenAI API returned 429'
+    );
   });
 });

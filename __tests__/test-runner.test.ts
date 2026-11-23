@@ -1,6 +1,14 @@
 import * as core from '@actions/core';
 import * as exec from '@actions/exec';
-import { writeTests, runTests, cleanupTests, ensureAuthSession, detectDevServer, playwrightConfigSource, ensurePlaywright } from '../src/test-runner';
+import {
+  writeTests,
+  runTests,
+  cleanupTests,
+  ensureAuthSession,
+  detectDevServer,
+  playwrightConfigSource,
+  ensurePlaywright,
+} from '../src/test-runner';
 import { ActionConfig, GeneratedTest } from '../src/types';
 
 jest.mock('@actions/core');
@@ -57,7 +65,11 @@ describe('writeTests', () => {
   it('should write test files and return paths', async () => {
     const result = await writeTests([testFile], '/work', 'e2e');
     expect(result).toEqual(['/work/e2e/login.spec.ts']);
-    expect(mockWriteFileSync).toHaveBeenCalledWith('/work/e2e/login.spec.ts', testFile.code, 'utf-8');
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      '/work/e2e/login.spec.ts',
+      testFile.code,
+      'utf-8'
+    );
   });
 
   it('should create directories if missing', async () => {
@@ -95,7 +107,11 @@ describe('writeTests', () => {
       const result = await writeTests(tests, '/work', 'e2e');
       expect(result).toEqual(['/work/e2e/good.spec.ts']);
       expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
-      expect(mockWriteFileSync).toHaveBeenCalledWith('/work/e2e/good.spec.ts', testFile.code, 'utf-8');
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        '/work/e2e/good.spec.ts',
+        testFile.code,
+        'utf-8'
+      );
     });
 
     it('normalises filename in place so downstream consumers use the safe value', async () => {
@@ -126,13 +142,23 @@ describe('runTests', () => {
 
   describe('failing page snapshot (page-snapshot input)', () => {
     const failWithErrorContext = () =>
-      (exec.exec as jest.Mock).mockImplementation(async (_c: string, _a: string[], opts: { listeners?: { stdout?: (d: Buffer) => void } }) => {
-        opts.listeners?.stdout?.(Buffer.from('Error Context: test-results/login/error-context.md\n'));
-        return 1;
-      });
+      (exec.exec as jest.Mock).mockImplementation(
+        async (
+          _c: string,
+          _a: string[],
+          opts: { listeners?: { stdout?: (d: Buffer) => void } }
+        ) => {
+          opts.listeners?.stdout?.(
+            Buffer.from('Error Context: test-results/login/error-context.md\n')
+          );
+          return 1;
+        }
+      );
 
     beforeEach(() => {
-      mockReadFileSync.mockReturnValue('# Page snapshot\n\n```yaml\n- textbox "Card number"\n```\n');
+      mockReadFileSync.mockReturnValue(
+        '# Page snapshot\n\n```yaml\n- textbox "Card number"\n```\n'
+      );
     });
 
     it('captures the page the failing spec reached', async () => {
@@ -143,10 +169,17 @@ describe('runTests', () => {
 
     it('neither reads nor returns the page when page-snapshot is false', async () => {
       failWithErrorContext();
-      const results = await runTests([testFile], { ...mockConfig, sendPageSnapshot: false }, '/work');
+      const results = await runTests(
+        [testFile],
+        { ...mockConfig, sendPageSnapshot: false },
+        '/work'
+      );
       expect(results[0].passed).toBe(false);
       expect(results[0].pageSnapshot).toBeUndefined();
-      expect(mockReadFileSync).not.toHaveBeenCalledWith(expect.stringContaining('error-context.md'), expect.anything());
+      expect(mockReadFileSync).not.toHaveBeenCalledWith(
+        expect.stringContaining('error-context.md'),
+        expect.anything()
+      );
     });
   });
 
@@ -169,7 +202,11 @@ describe('runTests', () => {
 
   it('refuses to run a test whose filename escapes the test dir', async () => {
     (exec.exec as jest.Mock).mockResolvedValue(0);
-    const results = await runTests([{ ...testFile, filename: '../../package.json' }], mockConfig, '/work');
+    const results = await runTests(
+      [{ ...testFile, filename: '../../package.json' }],
+      mockConfig,
+      '/work'
+    );
     expect(exec.exec).not.toHaveBeenCalled();
     expect(results[0].passed).toBe(false);
   });
@@ -202,7 +239,7 @@ describe('runTests', () => {
 // project never gets playwright/.auth/user.json written. Sign in once up
 // front so the session exists regardless of how the customer's config is wired.
 describe('ensureAuthSession', () => {
-  const withCreds = async <T,>(fn: () => Promise<T>): Promise<T> => {
+  const withCreds = async <T>(fn: () => Promise<T>): Promise<T> => {
     const restore = { ...process.env };
     process.env.TEST_USER_EMAIL = 'qa@example.com';
     process.env.TEST_USER_PASSWORD = 'pw';
@@ -214,10 +251,12 @@ describe('ensureAuthSession', () => {
     }
   };
   const execWithOutput = (exitCode: number, output: string) =>
-    (exec.exec as jest.Mock).mockImplementation(async (_c: string, _a: string[], opts: { listeners?: { stdout?: (d: Buffer) => void } }) => {
-      opts.listeners?.stdout?.(Buffer.from(output));
-      return exitCode;
-    });
+    (exec.exec as jest.Mock).mockImplementation(
+      async (_c: string, _a: string[], opts: { listeners?: { stdout?: (d: Buffer) => void } }) => {
+        opts.listeners?.stdout?.(Buffer.from(output));
+        return exitCode;
+      }
+    );
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -245,7 +284,7 @@ describe('ensureAuthSession', () => {
       expect(exec.exec).toHaveBeenCalledWith(
         'npx',
         ['playwright', 'test', '/auth\\.setup\\.ts$', '--reporter=line'],
-        expect.objectContaining({ cwd: '/work', ignoreReturnCode: true }),
+        expect.objectContaining({ cwd: '/work', ignoreReturnCode: true })
       );
       const opts = (exec.exec as jest.Mock).mock.calls[0][2];
       expect(opts.env.TEST_USER_EMAIL).toBe('qa@example.com');
@@ -255,7 +294,10 @@ describe('ensureAuthSession', () => {
 
   it('reports not-wired when no Playwright project matches the setup file', async () => {
     await withCreds(async () => {
-      execWithOutput(1, 'Error: No tests found.\nMake sure that arguments are regular expressions matching test files.');
+      execWithOutput(
+        1,
+        'Error: No tests found.\nMake sure that arguments are regular expressions matching test files.'
+      );
       const r = await ensureAuthSession('/work', mockConfig);
       expect(r.status).toBe('not-wired');
     });
@@ -265,7 +307,10 @@ describe('ensureAuthSession', () => {
     await withCreds(async () => {
       execWithOutput(0, 'app log: no tests found in fixtures, continuing\n1 passed');
       expect((await ensureAuthSession('/work', mockConfig)).status).toBe('ok');
-      execWithOutput(1, 'app log: no tests found in fixtures\n  1) [setup] › e2e/auth.setup.ts › authenticate\n TimeoutError');
+      execWithOutput(
+        1,
+        'app log: no tests found in fixtures\n  1) [setup] › e2e/auth.setup.ts › authenticate\n TimeoutError'
+      );
       expect((await ensureAuthSession('/work', mockConfig)).status).toBe('failed');
     });
   });
@@ -284,7 +329,10 @@ describe('ensureAuthSession', () => {
 
   it('reports failed when the setup ran but could not sign in', async () => {
     await withCreds(async () => {
-      execWithOutput(1, '  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n    TimeoutError: page.waitForURL');
+      execWithOutput(
+        1,
+        '  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n    TimeoutError: page.waitForURL'
+      );
       const r = await ensureAuthSession('/work', mockConfig);
       expect(r.status).toBe('failed');
       expect(r.output).toContain('TimeoutError');
@@ -311,7 +359,10 @@ describe('ensureAuthSession', () => {
 
   it('stays a sign-in failure when a retry reached the app and failed there', async () => {
     await withCreds(async () => {
-      execWithOutput(1, `${setupRefused}\n    Retry #1\n    TimeoutError: page.waitForURL: Timeout 15000ms exceeded.`);
+      execWithOutput(
+        1,
+        `${setupRefused}\n    Retry #1\n    TimeoutError: page.waitForURL: Timeout 15000ms exceeded.`
+      );
       mockReadFileSync.mockReturnValue("await page.goto('/login');");
       const r = await ensureAuthSession('/work', mockConfig);
       expect(r.status).toBe('failed');
@@ -329,11 +380,15 @@ describe('ensureAuthSession', () => {
 
   it('appDownResults fails every test with the one reason, without running it', () => {
     const { appDownResults } = jest.requireActual('../src/test-runner');
-    const results = appDownResults(
-      [{ filename: 'a.spec.ts' }, { filename: 'b.spec.ts' }],
-      { status: 'unreachable', origin: 'http://localhost:3000', output: setupRefused },
-    );
-    expect(results.map((r: { filename: string }) => r.filename)).toEqual(['a.spec.ts', 'b.spec.ts']);
+    const results = appDownResults([{ filename: 'a.spec.ts' }, { filename: 'b.spec.ts' }], {
+      status: 'unreachable',
+      origin: 'http://localhost:3000',
+      output: setupRefused,
+    });
+    expect(results.map((r: { filename: string }) => r.filename)).toEqual([
+      'a.spec.ts',
+      'b.spec.ts',
+    ]);
     for (const r of results) {
       expect(r.passed).toBe(false);
       expect(r.unreachable).toBe('http://localhost:3000');
@@ -370,7 +425,11 @@ describe('ensurePlaywrightConfig', () => {
     mockExistsSync.mockReturnValue(false);
     const created = ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e', false, null);
     expect(created).toContain("baseURL: 'http://localhost:4000'");
-    expect(mockWriteFileSync).toHaveBeenCalledWith(expect.stringContaining('playwright.config.ts'), created, 'utf-8');
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('playwright.config.ts'),
+      created,
+      'utf-8'
+    );
     expect(mockWriteFileSync).toHaveBeenCalledWith(
       expect.stringContaining('playwright.config.ts'),
       expect.stringContaining("baseURL: 'http://localhost:4000'"),
@@ -381,7 +440,9 @@ describe('ensurePlaywrightConfig', () => {
   // GC-029: local runs need the app started; CI already has it running.
   it('adds a webServer block that starts the app when a dev script was detected', () => {
     mockExistsSync.mockReturnValue(false);
-    ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e', false, { command: 'npm run dev' });
+    ensurePlaywrightConfig('/work', 'http://localhost:4000', 'e2e', false, {
+      command: 'npm run dev',
+    });
     const config: string = mockWriteFileSync.mock.calls[0][1];
     expect(config).toContain("command: 'npm run dev'");
     expect(config).toContain("url: 'http://localhost:4000'");
@@ -397,7 +458,9 @@ describe('ensurePlaywrightConfig', () => {
     const config: string = mockWriteFileSync.mock.calls[0][1];
     expect(config).not.toContain('\n  webServer: {');
     expect(config).toContain('No start script was found in package.json');
-    expect(config).toContain("webServer: { command: '<your start command>', url: 'http://localhost:4000'");
+    expect(config).toContain(
+      "webServer: { command: '<your start command>', url: 'http://localhost:4000'"
+    );
   });
 
   it('writes a plain run-only config, with no detection and no advice, when devServer is not given', () => {
@@ -411,7 +474,9 @@ describe('ensurePlaywrightConfig', () => {
   it('escapes quotes and newlines in interpolated values', () => {
     mockExistsSync.mockReturnValue(false);
     const ts = jest.requireActual('typescript');
-    ensurePlaywrightConfig('/work', "http://localhost:3000/it's\n", "e2e'x", true, { command: "echo 'hi'" });
+    ensurePlaywrightConfig('/work', "http://localhost:3000/it's\n", "e2e'x", true, {
+      command: "echo 'hi'",
+    });
     const config: string = mockWriteFileSync.mock.calls[0][1];
     const { diagnostics } = ts.transpileModule(config, { reportDiagnostics: true });
     expect(diagnostics ?? []).toEqual([]);
@@ -463,7 +528,8 @@ describe('detectDevServer', () => {
     mockExistsSync.mockReturnValue(false);
   });
 
-  const pkg = (scripts: Record<string, string>) => mockReadFileSync.mockReturnValue(JSON.stringify({ scripts }));
+  const pkg = (scripts: Record<string, string>) =>
+    mockReadFileSync.mockReturnValue(JSON.stringify({ scripts }));
 
   it('prefers dev, then start, then serve, then preview', () => {
     pkg({ preview: 'x', serve: 'x', start: 'x', dev: 'x' });
@@ -503,7 +569,12 @@ describe('playwrightConfigSource', () => {
     const ts = jest.requireActual('typescript');
     for (const devServer of [{ command: 'npm run dev' }, null, undefined]) {
       for (const withAuthSetup of [true, false]) {
-        const src = playwrightConfigSource({ baseUrl: 'http://localhost:3000', testDir: 'e2e', withAuthSetup, devServer });
+        const src = playwrightConfigSource({
+          baseUrl: 'http://localhost:3000',
+          testDir: 'e2e',
+          withAuthSetup,
+          devServer,
+        });
         const { diagnostics } = ts.transpileModule(src, { reportDiagnostics: true });
         expect(diagnostics ?? []).toEqual([]);
         expect(src.includes("name: 'setup'")).toBe(withAuthSetup);
@@ -522,14 +593,20 @@ describe('ensurePlaywright', () => {
   });
 
   const installCalls = () =>
-    mockExec.mock.calls.filter(([cmd, args]) => cmd === 'npx' && (args as string[]).includes('install'));
+    mockExec.mock.calls.filter(
+      ([cmd, args]) => cmd === 'npx' && (args as string[]).includes('install')
+    );
 
   it('skips the system dependency install when Chromium already launches', async () => {
     mockExistsSync.mockReturnValue(true);
     mockExec.mockResolvedValue(0);
     const installed = await ensurePlaywright('/work');
     expect(installed).toBe(false);
-    expect(mockExec).toHaveBeenCalledWith('node', ['-e', expect.stringContaining('chromium.launch')], expect.objectContaining({ cwd: '/work', ignoreReturnCode: true }));
+    expect(mockExec).toHaveBeenCalledWith(
+      'node',
+      ['-e', expect.stringContaining('chromium.launch')],
+      expect.objectContaining({ cwd: '/work', ignoreReturnCode: true })
+    );
     expect(installCalls()).toHaveLength(1);
     expect(installCalls()[0][1]).toEqual(['playwright', 'install', 'chromium']);
   });
@@ -545,15 +622,25 @@ describe('ensurePlaywright', () => {
   it('logs why the launch check failed', async () => {
     const core = jest.requireMock('@actions/core');
     mockExistsSync.mockReturnValue(true);
-    mockExec.mockImplementation(async (cmd: string, _args: string[], opts: any) => {
-      if (cmd === 'node') {
-        opts.listeners.stderr(Buffer.from('\nbrowserType.launch: Executable doesn\'t exist at /x\nmore'));
-        return 1;
+    mockExec.mockImplementation(
+      async (
+        cmd: string,
+        _args: string[],
+        opts: { listeners: { stderr: (data: Buffer) => void } }
+      ) => {
+        if (cmd === 'node') {
+          opts.listeners.stderr(
+            Buffer.from("\nbrowserType.launch: Executable doesn't exist at /x\nmore")
+          );
+          return 1;
+        }
+        return 0;
       }
-      return 0;
-    });
+    );
     await ensurePlaywright('/work');
-    expect(core.info).toHaveBeenCalledWith(expect.stringContaining("Executable doesn't exist at /x"));
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining("Executable doesn't exist at /x")
+    );
   });
 
   it('installs when the probe itself throws', async () => {
@@ -577,24 +664,40 @@ describe('ensurePlaywright', () => {
 });
 
 describe('session renewal (GC-089)', () => {
-  const authedFile: GeneratedTest = { ...testFile, filename: 'expenses.spec.ts', code: "test.use({ storageState: 'playwright/.auth/user.json' });" };
+  const authedFile: GeneratedTest = {
+    ...testFile,
+    filename: 'expenses.spec.ts',
+    code: "test.use({ storageState: 'playwright/.auth/user.json' });",
+  };
   const session = '/work/playwright/.auth/user.json';
   // Spec runs pass an anchored, escaped path (see specFilter); the setup runs
   // by bare name. Name both by file again.
   const fileArg = (args: string[]): string =>
-    (args.find((a) => /\.(spec|setup)\\?\.ts\$?$/.test(a)) as string).replace(/\$$/, '').replace(/\\/g, '').split('/').pop() as string;
+    (args.find((a) => /\.(spec|setup)\\?\.ts\$?$/.test(a)) as string)
+      .replace(/\$$/, '')
+      .replace(/\\/g, '')
+      .split('/')
+      .pop() as string;
   const ranFiles = () => (exec.exec as jest.Mock).mock.calls.map((c) => fileArg(c[1]));
-  const signedOut = 'Expected pattern: /expenses/\nReceived string: "http://localhost:3000/login/?next=%2Fexpenses"';
+  const signedOut =
+    'Expected pattern: /expenses/\nReceived string: "http://localhost:3000/login/?next=%2Fexpenses"';
   // Each call returns the next exit code for that file (the last one repeats);
   // a failing spec prints `failureOutput`.
   const exitCodes = (codes: Record<string, number[]>, failureOutput = signedOut) =>
-    (exec.exec as jest.Mock).mockImplementation(async (_c: string, args: string[], opts: { listeners?: { stderr?: (d: Buffer) => void } }) => {
-      const file = fileArg(args);
-      const list = codes[file] ?? [0];
-      const code = list.length > 1 ? list.shift() : list[0];
-      if (code !== 0 && file.endsWith('.spec.ts')) opts.listeners?.stderr?.(Buffer.from(failureOutput));
-      return code;
-    });
+    (exec.exec as jest.Mock).mockImplementation(
+      async (
+        _c: string,
+        args: string[],
+        opts: { listeners?: { stderr?: (d: Buffer) => void } }
+      ) => {
+        const file = fileArg(args);
+        const list = codes[file] ?? [0];
+        const code = list.length > 1 ? list.shift() : list[0];
+        if (code !== 0 && file.endsWith('.spec.ts'))
+          opts.listeners?.stderr?.(Buffer.from(failureOutput));
+        return code;
+      }
+    );
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -613,8 +716,20 @@ describe('session renewal (GC-089)', () => {
   it('re-runs a failed authenticated spec once with a fresh sign-in, then signs in before every later one', async () => {
     exitCodes({ 'expenses.spec.ts': [1, 0] });
     const renewal = { rotates: false, stopped: false };
-    const results = await runTests([authedFile, testFile, authedFile], mockConfig, '/work', renewal);
-    expect(ranFiles()).toEqual(['expenses.spec.ts', 'auth.setup.ts', 'expenses.spec.ts', 'login.spec.ts', 'auth.setup.ts', 'expenses.spec.ts']);
+    const results = await runTests(
+      [authedFile, testFile, authedFile],
+      mockConfig,
+      '/work',
+      renewal
+    );
+    expect(ranFiles()).toEqual([
+      'expenses.spec.ts',
+      'auth.setup.ts',
+      'expenses.spec.ts',
+      'login.spec.ts',
+      'auth.setup.ts',
+      'expenses.spec.ts',
+    ]);
     expect(results.map((r) => r.passed)).toEqual([true, true, true]);
     expect(renewal.rotates).toBe(true);
     // The session is moved aside so the setup cannot reuse it.
@@ -641,13 +756,17 @@ describe('session renewal (GC-089)', () => {
   it('sees a sign-in redirect printed on stdout even when stderr has other output', async () => {
     let specRuns = 0;
     (exec.exec as jest.Mock).mockImplementation(
-      async (_c: string, args: string[], opts: { listeners?: { stdout?: (d: Buffer) => void; stderr?: (d: Buffer) => void } }) => {
+      async (
+        _c: string,
+        args: string[],
+        opts: { listeners?: { stdout?: (d: Buffer) => void; stderr?: (d: Buffer) => void } }
+      ) => {
         if (fileArg(args) !== 'expenses.spec.ts') return 0;
         if (++specRuns > 1) return 0;
         opts.listeners?.stderr?.(Buffer.from('(node:1) ExperimentalWarning: something'));
         opts.listeners?.stdout?.(Buffer.from(signedOut));
         return 1;
-      },
+      }
     );
     const renewal = { rotates: false, stopped: false };
     await runTests([authedFile], mockConfig, '/work', renewal);
@@ -664,7 +783,10 @@ describe('session renewal (GC-089)', () => {
 
   it('treats a spec with an inline (logged-out) storageState as not authenticated', async () => {
     exitCodes({ 'expenses.spec.ts': [1] });
-    const loggedOut = { ...authedFile, code: 'test.use({ storageState: { cookies: [], origins: [] } });' };
+    const loggedOut = {
+      ...authedFile,
+      code: 'test.use({ storageState: { cookies: [], origins: [] } });',
+    };
     await runTests([loggedOut], mockConfig, '/work', { rotates: false, stopped: false });
     expect(ranFiles()).toEqual(['expenses.spec.ts']);
   });
@@ -683,7 +805,9 @@ describe('session renewal (GC-089)', () => {
     expect(ranFiles()).toEqual(['auth.setup.ts', 'expenses.spec.ts', 'expenses.spec.ts']);
     expect(mockRenameSync).toHaveBeenLastCalledWith(`${session}.prev`, session);
     expect(renewal.stopped).toBe(true);
-    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('reuses the earlier session'));
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('reuses the earlier session')
+    );
     expect(results.every((r) => r.passed)).toBe(true);
   });
 
@@ -717,13 +841,20 @@ describe('session renewal (GC-089)', () => {
 // generated test failed with ECONNREFUSED.
 describe('base-url override for repos with their own Playwright config', () => {
   const actual = jest.requireActual('../src/test-runner');
-  const { ensureBaseUrlOverride, baseUrlOverrideSource, runPlaywrightFile, removeBaseUrlOverride } = actual;
-  const preview: ActionConfig = { ...mockConfig, baseUrl: 'https://pr-1.example.pages.dev', baseUrlExplicit: true };
+  const { ensureBaseUrlOverride, baseUrlOverrideSource, runPlaywrightFile, removeBaseUrlOverride } =
+    actual;
+  const preview: ActionConfig = {
+    ...mockConfig,
+    baseUrl: 'https://pr-1.example.pages.dev',
+    baseUrlExplicit: true,
+  };
   const OWN = "export default { use: { baseURL: 'http://localhost:3000' } };";
 
   /** Which files exist in /work; everything else is absent. */
   const files = (...names: string[]) =>
-    mockExistsSync.mockImplementation((p: unknown) => names.some((n) => String(p).endsWith(`/work/${n}`)));
+    mockExistsSync.mockImplementation((p: unknown) =>
+      names.some((n) => String(p).endsWith(`/work/${n}`))
+    );
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -740,10 +871,16 @@ describe('base-url override for repos with their own Playwright config', () => {
     expect(mockWriteFileSync).toHaveBeenCalledWith(
       '/work/playwright.greenci.config.ts',
       expect.stringContaining("from './playwright.config'"),
-      'utf-8',
+      'utf-8'
     );
     const [, args, opts] = (exec.exec as jest.Mock).mock.calls[0];
-    expect(args).toEqual(['playwright', 'test', 'a.spec.ts', '--reporter=line', '--config=playwright.greenci.config.ts']);
+    expect(args).toEqual([
+      'playwright',
+      'test',
+      'a.spec.ts',
+      '--reporter=line',
+      '--config=playwright.greenci.config.ts',
+    ]);
     expect(opts.env.BASE_URL).toBe('https://pr-1.example.pages.dev');
   });
 
@@ -751,7 +888,12 @@ describe('base-url override for repos with their own Playwright config', () => {
     files('playwright.config.ts');
     await runPlaywrightFile('a.spec.ts', '/work', { ...mockConfig, baseUrlExplicit: false }, {});
     expect(mockWriteFileSync).not.toHaveBeenCalled();
-    expect((exec.exec as jest.Mock).mock.calls[0][1]).toEqual(['playwright', 'test', 'a.spec.ts', '--reporter=line']);
+    expect((exec.exec as jest.Mock).mock.calls[0][1]).toEqual([
+      'playwright',
+      'test',
+      'a.spec.ts',
+      '--reporter=line',
+    ]);
   });
 
   it('does nothing when the repo has no config', () => {
@@ -762,7 +904,9 @@ describe('base-url override for repos with their own Playwright config', () => {
 
   it('does not wrap the config GreenCI generated for the run', () => {
     files('playwright.config.ts');
-    mockReadFileSync.mockReturnValue(playwrightConfigSource({ baseUrl: preview.baseUrl, testDir: 'e2e' }));
+    mockReadFileSync.mockReturnValue(
+      playwrightConfigSource({ baseUrl: preview.baseUrl, testDir: 'e2e' })
+    );
     expect(ensureBaseUrlOverride('/work', preview)).toBeNull();
     expect(mockWriteFileSync).not.toHaveBeenCalled();
   });
@@ -783,7 +927,11 @@ describe('base-url override for repos with their own Playwright config', () => {
   ])('%s is wrapped by %s', (own, wrapper, importLine) => {
     files(own);
     expect(ensureBaseUrlOverride('/work', preview)).toBe(wrapper);
-    expect(mockWriteFileSync).toHaveBeenCalledWith(`/work/${wrapper}`, expect.stringContaining(importLine), 'utf-8');
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      `/work/${wrapper}`,
+      expect.stringContaining(importLine),
+      'utf-8'
+    );
   });
 
   it('reads the URL from BASE_URL instead of splicing the input into source', () => {
@@ -798,7 +946,12 @@ describe('base-url override for repos with their own Playwright config', () => {
       throw new Error('EROFS: read-only file system');
     });
     await runPlaywrightFile('a.spec.ts', '/work', preview, {});
-    expect((exec.exec as jest.Mock).mock.calls[0][1]).toEqual(['playwright', 'test', 'a.spec.ts', '--reporter=line']);
+    expect((exec.exec as jest.Mock).mock.calls[0][1]).toEqual([
+      'playwright',
+      'test',
+      'a.spec.ts',
+      '--reporter=line',
+    ]);
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Could not apply base-url'));
   });
 

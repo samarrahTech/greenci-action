@@ -40,7 +40,9 @@ jest.mock('../src/auth-scaffold', () => ({
 // The whole test-runner is mocked above; the config template is pure and the
 // PR body renders it, so give it back its real implementation.
 beforeEach(() => {
-  (testRunner.playwrightConfigSource as jest.Mock).mockImplementation(jest.requireActual('../src/test-runner').playwrightConfigSource);
+  (testRunner.playwrightConfigSource as jest.Mock).mockImplementation(
+    jest.requireActual('../src/test-runner').playwrightConfigSource
+  );
 });
 
 const base = {
@@ -112,21 +114,39 @@ describe('buildBootstrapPRBody — auth sections', () => {
 
 describe('buildBootstrapPRBody — local setup snippet', () => {
   it('shows the exact config this run wrote, webServer block included', () => {
-    const configSource = "import { defineConfig } from '@playwright/test';\nexport default defineConfig({ webServer: { command: 'npm run dev' } });\n";
-    const body = buildBootstrapPRBody(['Open /'], [], [], [], [], { ...base, withAuth: false, createdConfig: true, authBlocked: [], configSource });
+    const configSource =
+      "import { defineConfig } from '@playwright/test';\nexport default defineConfig({ webServer: { command: 'npm run dev' } });\n";
+    const body = buildBootstrapPRBody(['Open /'], [], [], [], [], {
+      ...base,
+      withAuth: false,
+      createdConfig: true,
+      authBlocked: [],
+      configSource,
+    });
     expect(body).toContain("webServer: { command: 'npm run dev' }");
     expect(body).toContain('And add a `playwright.config.ts`');
   });
 
   it('does not claim anything about start scripts when no source was passed', () => {
-    const body = buildBootstrapPRBody(['Open /'], [], [], [], [], { ...base, withAuth: false, createdConfig: true, authBlocked: [] });
+    const body = buildBootstrapPRBody(['Open /'], [], [], [], [], {
+      ...base,
+      withAuth: false,
+      createdConfig: true,
+      authBlocked: [],
+    });
     expect(body).toContain("testDir: 'e2e'");
     expect(body).toContain("baseURL: 'http://localhost:3000'");
     expect(body).not.toContain('webServer');
   });
 
   it('points at the committed config instead of asking for one when the PR includes it (auth)', () => {
-    const body = buildBootstrapPRBody(['Open /'], [], [], [], [], { ...base, withAuth: true, createdConfig: true, authBlocked: [], configSource: 'x' });
+    const body = buildBootstrapPRBody(['Open /'], [], [], [], [], {
+      ...base,
+      withAuth: true,
+      createdConfig: true,
+      authBlocked: [],
+      configSource: 'x',
+    });
     expect(body).not.toContain('And add a `playwright.config.ts`');
     expect(body).toContain('The `playwright.config.ts` in this PR');
   });
@@ -154,7 +174,9 @@ describe('runBootstrap — auth scaffold + config commit', () => {
     description: '',
     confidence: 1,
   };
-  const llm = { bootstrapTests: jest.fn().mockResolvedValue([authedSpec]) } as unknown as ILLMClient;
+  const llm = {
+    bootstrapTests: jest.fn().mockResolvedValue([authedSpec]),
+  } as unknown as ILLMClient;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -162,28 +184,54 @@ describe('runBootstrap — auth scaffold + config commit', () => {
     (testRunner.writeTests as jest.Mock).mockResolvedValue(['/work/e2e/expenses.spec.ts']);
     (testRunner.ensurePlaywright as jest.Mock).mockResolvedValue(false);
     (testRunner.ensureAuthSession as jest.Mock).mockResolvedValue({ status: 'ok' });
-    (testRunner.runTests as jest.Mock).mockResolvedValue([{ filename: 'expenses.spec.ts', passed: true, duration: 1 }]);
-    (gitOps.createBootstrapPR as jest.Mock).mockResolvedValue({ prUrl: 'https://x/pr/1', committedFiles: [] });
-    (healer.healFailedTests as jest.Mock).mockResolvedValue({ healed: [], results: [], suspectedBugs: [], authBlocked: [] });
+    (testRunner.runTests as jest.Mock).mockResolvedValue([
+      { filename: 'expenses.spec.ts', passed: true, duration: 1 },
+    ]);
+    (gitOps.createBootstrapPR as jest.Mock).mockResolvedValue({
+      prUrl: 'https://x/pr/1',
+      committedFiles: [],
+    });
+    (healer.healFailedTests as jest.Mock).mockResolvedValue({
+      healed: [],
+      results: [],
+      suspectedBugs: [],
+      authBlocked: [],
+    });
   });
 
   // GC-027: a generated spec with no falsifiable assertion never reaches
   // disk, is not counted, and the PR says why the count is lower.
   it('drops tautological specs before writing and lists them in the PR body', async () => {
-    const hollow = { filename: 'journey-4.spec.ts', code: 'expect(page).toHaveURL(/.*/)', description: '', confidence: 1 };
+    const hollow = {
+      filename: 'journey-4.spec.ts',
+      code: 'expect(page).toHaveURL(/.*/)',
+      description: '',
+      confidence: 1,
+    };
     (llm.bootstrapTests as jest.Mock).mockResolvedValueOnce([hollow, authedSpec]);
     (rejectTautologies as jest.Mock).mockReturnValueOnce({
       kept: [authedSpec],
       rejected: [{ filename: 'journey-4.spec.ts', reason: 'every assertion is unfalsifiable' }],
     });
-    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({
+      path: '/work/e2e/auth.setup.ts',
+      created: true,
+    });
     (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(false);
 
     const outcome = await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
 
     expect(rejectTautologies).toHaveBeenCalledWith([hollow, authedSpec]);
-    expect(testRunner.writeTests).toHaveBeenCalledWith([authedSpec], '/work', 'e2e', expect.anything());
-    expect(testRunner.runTests).toHaveBeenCalledWith([authedSpec], config, '/work', { rotates: false, stopped: false });
+    expect(testRunner.writeTests).toHaveBeenCalledWith(
+      [authedSpec],
+      '/work',
+      'e2e',
+      expect.anything()
+    );
+    expect(testRunner.runTests).toHaveBeenCalledWith([authedSpec], config, '/work', {
+      rotates: false,
+      stopped: false,
+    });
     expect(outcome.testsGenerated).toBe(1);
     const body: string = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][5];
     expect(body).toContain('Discarded: tests that could not fail');
@@ -191,7 +239,12 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   });
 
   it('returns an empty outcome without touching disk when every spec is a tautology', async () => {
-    const hollow = { filename: 'journey-4.spec.ts', code: 'expect(page).toHaveURL(/.*/)', description: '', confidence: 1 };
+    const hollow = {
+      filename: 'journey-4.spec.ts',
+      code: 'expect(page).toHaveURL(/.*/)',
+      description: '',
+      confidence: 1,
+    };
     (llm.bootstrapTests as jest.Mock).mockResolvedValueOnce([hollow]);
     (rejectTautologies as jest.Mock).mockReturnValueOnce({
       kept: [],
@@ -208,7 +261,9 @@ describe('runBootstrap — auth scaffold + config commit', () => {
       prUrl: null,
       rejected: [{ filename: 'journey-4.spec.ts', reason: 'every assertion is unfalsifiable' }],
     });
-    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('All 1 generated spec(s) were discarded'));
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('All 1 generated spec(s) were discarded')
+    );
     expect(testRunner.writeTests).not.toHaveBeenCalled();
     expect(gitOps.createBootstrapPR).not.toHaveBeenCalled();
   });
@@ -216,7 +271,10 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   // Review finding: a repo with its own auth.setup.ts but no config must still
   // get the generated config (with the setup project) in the PR.
   it('commits the generated config even when the customer already had auth.setup.ts', async () => {
-    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: false });
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({
+      path: '/work/e2e/auth.setup.ts',
+      created: false,
+    });
     (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue('// generated config');
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const files: string[] = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][3];
@@ -240,8 +298,12 @@ describe('runBootstrap — auth scaffold + config commit', () => {
     (gitOps.unchangedOnDefaultBranch as jest.Mock).mockResolvedValue(true);
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const [, , , files, , body] = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0];
-    expect(files).toEqual(expect.arrayContaining(['/work/package.json', '/work/package-lock.json']));
-    expect(body).toContain('This PR adds `@playwright/test` to `devDependencies` (`package.json`, `package-lock.json`)');
+    expect(files).toEqual(
+      expect.arrayContaining(['/work/package.json', '/work/package-lock.json'])
+    );
+    expect(body).toContain(
+      'This PR adds `@playwright/test` to `devDependencies` (`package.json`, `package-lock.json`)'
+    );
     expect(body).not.toContain('npm install -D @playwright/test');
   });
 
@@ -256,13 +318,18 @@ describe('runBootstrap — auth scaffold + config commit', () => {
     expect(files).not.toContain('/work/package.json');
     expect(files).not.toContain('/work/package-lock.json');
     expect(body).toContain('npm install -D @playwright/test');
-    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('not what the default branch holds'));
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('not what the default branch holds')
+    );
     expect(devDependency.restoreFiles).toHaveBeenCalledWith(saved.files);
   });
 
   it('keeps the manual install instructions when the dependency could not be saved', async () => {
     (testRunner.ensurePlaywright as jest.Mock).mockResolvedValue(true);
-    (devDependency.savePlaywrightDevDependency as jest.Mock).mockResolvedValue({ status: 'manual', files: [] });
+    (devDependency.savePlaywrightDevDependency as jest.Mock).mockResolvedValue({
+      status: 'manual',
+      files: [],
+    });
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const body: string = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][5];
     expect(body).toContain('npm install -D @playwright/test');
@@ -270,7 +337,10 @@ describe('runBootstrap — auth scaffold + config commit', () => {
 
   it('does not tell a repo that already declares Playwright to add it', async () => {
     (testRunner.ensurePlaywright as jest.Mock).mockResolvedValue(true);
-    (devDependency.savePlaywrightDevDependency as jest.Mock).mockResolvedValue({ status: 'declared', files: [] });
+    (devDependency.savePlaywrightDevDependency as jest.Mock).mockResolvedValue({
+      status: 'declared',
+      files: [],
+    });
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const body: string = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][5];
     expect(body).not.toContain('npm install -D @playwright/test');
@@ -285,7 +355,10 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   });
 
   it('commits the scaffold it wrote, and not when it kept the customer file', async () => {
-    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({
+      path: '/work/e2e/auth.setup.ts',
+      created: true,
+    });
     (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const files: string[] = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][3];
@@ -294,7 +367,10 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   });
 
   it('signs in once before running the suite when a generated spec needs a session', async () => {
-    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({
+      path: '/work/e2e/auth.setup.ts',
+      created: true,
+    });
     (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     expect(testRunner.ensureAuthSession).toHaveBeenCalledWith('/work', config);
@@ -308,9 +384,14 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   // GC-089: the suite and the heal reruns share one renewal record, so an app
   // found to rotate sessions in the suite also gets fresh sign-ins in healing.
   it('shares one session renewal record between the suite and healing', async () => {
-    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({
+      path: '/work/e2e/auth.setup.ts',
+      created: true,
+    });
     (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
-    (testRunner.runTests as jest.Mock).mockResolvedValue([{ filename: 'expenses.spec.ts', passed: false, duration: 1, error: 'boom' }]);
+    (testRunner.runTests as jest.Mock).mockResolvedValue([
+      { filename: 'expenses.spec.ts', passed: false, duration: 1, error: 'boom' },
+    ]);
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const session = (testRunner.runTests as jest.Mock).mock.calls[0][3];
     expect(session).toEqual({ rotates: false, stopped: false });
@@ -318,9 +399,15 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   });
 
   it('does not renew a session that never signed in', async () => {
-    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({
+      path: '/work/e2e/auth.setup.ts',
+      created: true,
+    });
     (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
-    (testRunner.ensureAuthSession as jest.Mock).mockResolvedValue({ status: 'failed', output: 'TimeoutError: login' });
+    (testRunner.ensureAuthSession as jest.Mock).mockResolvedValue({
+      status: 'failed',
+      output: 'TimeoutError: login',
+    });
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     expect((testRunner.runTests as jest.Mock).mock.calls[0][3]).toBeUndefined();
   });
@@ -328,11 +415,22 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   // Review finding: classification is deterministic — it must run with
   // healing disabled, and a failed sign-in pass must relabel the ENOENTs.
   it('still classifies auth failures with maxRetries 0 and relabels them after a failed sign-in', async () => {
-    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({
+      path: '/work/e2e/auth.setup.ts',
+      created: true,
+    });
     (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
-    (testRunner.ensureAuthSession as jest.Mock).mockResolvedValue({ status: 'failed', output: 'TimeoutError: login' });
+    (testRunner.ensureAuthSession as jest.Mock).mockResolvedValue({
+      status: 'failed',
+      output: 'TimeoutError: login',
+    });
     (testRunner.runTests as jest.Mock).mockResolvedValue([
-      { filename: 'expenses.spec.ts', passed: false, duration: 1, error: 'ENOENT playwright/.auth/user.json' },
+      {
+        filename: 'expenses.spec.ts',
+        passed: false,
+        duration: 1,
+        error: 'ENOENT playwright/.auth/user.json',
+      },
     ]);
     (healer.healFailedTests as jest.Mock).mockResolvedValue({
       healed: [],
@@ -348,7 +446,10 @@ describe('runBootstrap — auth scaffold + config commit', () => {
   });
 
   it('passes the protection record to writeTests and healing, and reports renamed files in the PR', async () => {
-    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({
+      path: '/work/e2e/auth.setup.ts',
+      created: true,
+    });
     (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
     (llm.bootstrapTests as jest.Mock).mockResolvedValueOnce([{ ...authedSpec }]); // fresh object: the guard mutates filename
     // Emulate the write-time guard renaming the colliding file.
@@ -357,28 +458,46 @@ describe('runBootstrap — auth scaffold + config commit', () => {
       protect.renamed.push({ from: 'expenses.spec.ts', to: 'expenses-bootstrap.spec.ts' });
       return ['/work/e2e/expenses-bootstrap.spec.ts'];
     });
-    (testRunner.runTests as jest.Mock).mockResolvedValue([{ filename: 'expenses-bootstrap.spec.ts', passed: true, duration: 1 }]);
+    (testRunner.runTests as jest.Mock).mockResolvedValue([
+      { filename: 'expenses-bootstrap.spec.ts', passed: true, duration: 1 },
+    ]);
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const protect = (testRunner.writeTests as jest.Mock).mock.calls[0][3];
-    expect(protect).toEqual(expect.objectContaining({ owned: expect.any(Set), renamed: expect.any(Array) }));
+    expect(protect).toEqual(
+      expect.objectContaining({ owned: expect.any(Set), renamed: expect.any(Array) })
+    );
     const body: string = (gitOps.createBootstrapPR as jest.Mock).mock.calls[0][5];
     expect(body).toContain('Kept your existing tests');
     expect(body).toContain('`expenses.spec.ts` (yours) → `expenses-bootstrap.spec.ts` (generated)');
   });
 
   it('hands the same protection record to the healer so heals cannot overwrite either', async () => {
-    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({
+      path: '/work/e2e/auth.setup.ts',
+      created: true,
+    });
     (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
-    (testRunner.runTests as jest.Mock).mockResolvedValue([{ filename: 'expenses.spec.ts', passed: false, duration: 1, error: 'boom' }]);
-    await runBootstrap({ ...config, maxRetries: 1 }, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
+    (testRunner.runTests as jest.Mock).mockResolvedValue([
+      { filename: 'expenses.spec.ts', passed: false, duration: 1, error: 'boom' },
+    ]);
+    await runBootstrap({ ...config, maxRetries: 1 }, llm, '/work', 'tok', {
+      owner: 'o',
+      repo: 'r',
+    });
     const protectToWrite = (testRunner.writeTests as jest.Mock).mock.calls[0][3];
     const protectToHeal = (healer.healFailedTests as jest.Mock).mock.calls[0][5];
     expect(protectToHeal).toBe(protectToWrite);
   });
 
   it('drops a model-generated file named auth.setup.ts', async () => {
-    (llm.bootstrapTests as jest.Mock).mockResolvedValueOnce([{ ...authedSpec, filename: 'auth.setup.ts' }, authedSpec]);
-    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({ path: '/work/e2e/auth.setup.ts', created: true });
+    (llm.bootstrapTests as jest.Mock).mockResolvedValueOnce([
+      { ...authedSpec, filename: 'auth.setup.ts' },
+      authedSpec,
+    ]);
+    (authScaffold.writeAuthScaffold as jest.Mock).mockReturnValue({
+      path: '/work/e2e/auth.setup.ts',
+      created: true,
+    });
     (testRunner.ensurePlaywrightConfig as jest.Mock).mockReturnValue(null);
     await runBootstrap(config, llm, '/work', 'tok', { owner: 'o', repo: 'r' });
     const written = (testRunner.writeTests as jest.Mock).mock.calls[0][0];

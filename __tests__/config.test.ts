@@ -4,7 +4,9 @@ import { getConfig } from '../src/config';
 jest.mock('@actions/core');
 
 const mockGetInput = core.getInput as jest.MockedFunction<typeof core.getInput>;
-const mockGetBooleanInput = core.getBooleanInput as jest.MockedFunction<typeof core.getBooleanInput>;
+const mockGetBooleanInput = core.getBooleanInput as jest.MockedFunction<
+  typeof core.getBooleanInput
+>;
 
 // Mirrors @actions/core: YAML 1.2 core-schema booleans, TypeError otherwise.
 function booleanFromInput(name: string): boolean {
@@ -32,7 +34,7 @@ describe('getConfig', () => {
         'page-snapshot': 'true',
         'fail-on-test-failure': 'true',
         'greenci-api-url': '',
-        'mode': '',
+        mode: '',
         'cypress-dir': '',
       };
       return defaults[name] ?? '';
@@ -64,7 +66,7 @@ describe('getConfig', () => {
         'max-retries': '5',
         'auto-commit': 'false',
         'page-snapshot': 'false',
-        'mode': 'migrate',
+        mode: 'migrate',
         'test-dir': 'tests',
         'base-url': 'http://localhost:8080',
       };
@@ -82,7 +84,10 @@ describe('getConfig', () => {
   });
 
   it('accepts any YAML casing for page-snapshot', () => {
-    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'page-snapshot': 'False' } as Record<string, string>)[name] ?? '');
+    mockGetInput.mockImplementation(
+      (name: string) =>
+        (({ 'api-key': 'k', 'page-snapshot': 'False' }) as Record<string, string>)[name] ?? ''
+    );
     expect(getConfig().sendPageSnapshot).toBe(false);
   });
 
@@ -90,34 +95,78 @@ describe('getConfig', () => {
   // The runner only passes '' when the workflow did (action.yml has a
   // default), and it used to mean "send snapshots".
   it('turns page snapshots off, with a warning, on an explicitly empty page-snapshot', () => {
-    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'page-snapshot': '', 'auto-commit': 'true' } as Record<string, string>)[name] ?? '');
+    mockGetInput.mockImplementation(
+      (name: string) =>
+        (
+          ({ 'api-key': 'k', 'page-snapshot': '', 'auto-commit': 'true' }) as Record<string, string>
+        )[name] ?? ''
+    );
     expect(getConfig().sendPageSnapshot).toBe(false);
-    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('page-snapshot was passed an empty value'));
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('page-snapshot was passed an empty value')
+    );
   });
 
   // GC-109: failing is the safe reading of a value we cannot read.
-  it.each([['false', false], ['False', false], ['true', true], ['', true], ['nope', true]])('reads fail-on-test-failure %p as %p', (value, expected) => {
+  it.each([
+    ['false', false],
+    ['False', false],
+    ['true', true],
+    ['', true],
+    ['nope', true],
+  ])('reads fail-on-test-failure %p as %p', (value, expected) => {
     mockGetInput.mockImplementation(
-      (name: string) => ({ 'api-key': 'k', 'fail-on-test-failure': value, 'auto-commit': 'true', 'page-snapshot': 'true' } as Record<string, string>)[name] ?? '',
+      (name: string) =>
+        (
+          ({
+            'api-key': 'k',
+            'fail-on-test-failure': value,
+            'auto-commit': 'true',
+            'page-snapshot': 'true',
+          }) as Record<string, string>
+        )[name] ?? ''
     );
     expect(getConfig().failOnTestFailure).toBe(expected);
   });
 
   // GC-103: 'True' used to parse as false without a word, while page-snapshot accepted it.
   it.each(['true', 'True', 'TRUE', ' true '])('reads auto-commit %p as on', (value) => {
-    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'auto-commit': value, 'page-snapshot': 'true', 'fail-on-test-failure': 'true' } as Record<string, string>)[name] ?? '');
+    mockGetInput.mockImplementation(
+      (name: string) =>
+        (
+          ({
+            'api-key': 'k',
+            'auto-commit': value,
+            'page-snapshot': 'true',
+            'fail-on-test-failure': 'true',
+          }) as Record<string, string>
+        )[name] ?? ''
+    );
     expect(getConfig().autoCommit).toBe(true);
     expect(core.warning).not.toHaveBeenCalled();
   });
 
   it.each(['yes', '1', ''])('does not commit, with a warning, when auto-commit is %p', (value) => {
-    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'auto-commit': value, 'page-snapshot': 'true', 'fail-on-test-failure': 'true' } as Record<string, string>)[name] ?? '');
+    mockGetInput.mockImplementation(
+      (name: string) =>
+        (
+          ({
+            'api-key': 'k',
+            'auto-commit': value,
+            'page-snapshot': 'true',
+            'fail-on-test-failure': 'true',
+          }) as Record<string, string>
+        )[name] ?? ''
+    );
     expect(getConfig().autoCommit).toBe(false);
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('auto-commit'));
   });
 
   it('turns page snapshots off, with a warning, on an unreadable page-snapshot value', () => {
-    mockGetInput.mockImplementation((name: string) => ({ 'api-key': 'k', 'page-snapshot': 'flase' } as Record<string, string>)[name] ?? '');
+    mockGetInput.mockImplementation(
+      (name: string) =>
+        (({ 'api-key': 'k', 'page-snapshot': 'flase' }) as Record<string, string>)[name] ?? ''
+    );
     expect(getConfig().sendPageSnapshot).toBe(false);
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('page-snapshot'));
   });

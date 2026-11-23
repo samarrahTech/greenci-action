@@ -122,7 +122,7 @@ afterEach(() => { reset(); });`;
 
     test('converts URL assertion', () => {
       const result = convert("cy.url().should('include', '/dashboard');");
-      expect(result).toContain("await expect(page).toHaveURL(/\\/dashboard/)");
+      expect(result).toContain('await expect(page).toHaveURL(/\\/dashboard/)');
     });
   });
 
@@ -150,14 +150,18 @@ afterEach(() => { reset(); });`;
 
   describe('imports', () => {
     test('adds Playwright imports', () => {
-      const result = convert("describe('test', () => { it('works', () => { cy.get('x').should('exist'); }); });");
+      const result = convert(
+        "describe('test', () => { it('works', () => { cy.get('x').should('exist'); }); });"
+      );
       expect(result).toMatch(/^import \{ test, expect \} from '@playwright\/test';/);
     });
   });
 
   describe('confidence scoring', () => {
     test('high confidence for fully converted code', () => {
-      const { confidence } = convertCypressToPlaywright("cy.visit('/'); cy.get('h1').should('be.visible');");
+      const { confidence } = convertCypressToPlaywright(
+        "cy.visit('/'); cy.get('h1').should('be.visible');"
+      );
       expect(confidence).toBeGreaterThanOrEqual(0.8);
     });
 
@@ -200,11 +204,15 @@ describe('Login Page', () => {
       expect(result).toContain('test.beforeEach(()');
       expect(result).toContain("await page.goto('/login')");
       expect(result).toContain("await page.locator('#email').fill('admin@example.com')");
-      expect(result).toContain("await page.locator('button[type=\"submit\"]').click()");
-      expect(result).toContain("await expect(page).toHaveURL(/\\/dashboard/)");
+      expect(result).toContain('await page.locator(\'button[type="submit"]\').click()');
+      expect(result).toContain('await expect(page).toHaveURL(/\\/dashboard/)');
       expect(result).toContain("await expect(page.locator('.welcome-message')).toBeVisible()");
-      expect(result).toContain("await expect(page.locator('.welcome-message')).toContainText('Welcome')");
-      expect(result).toContain("await expect(page.locator('.error-alert')).toHaveText('Invalid credentials')");
+      expect(result).toContain(
+        "await expect(page.locator('.welcome-message')).toContainText('Welcome')"
+      );
+      expect(result).toContain(
+        "await expect(page.locator('.error-alert')).toHaveText('Invalid credentials')"
+      );
     });
   });
 });

@@ -141,7 +141,11 @@ export interface AuthScaffoldResult {
  * The committed file is the customer's ("this file is yours"): a re-run must
  * never overwrite their edits (a hardened credentials guard, custom locators).
  */
-export function writeAuthScaffold(workDir: string, testDir: string, loginPath: string): AuthScaffoldResult {
+export function writeAuthScaffold(
+  workDir: string,
+  testDir: string,
+  loginPath: string
+): AuthScaffoldResult {
   const filePath = path.join(workDir, testDir, AUTH_SETUP_FILENAME);
   if (fs.existsSync(filePath)) {
     return { path: filePath, created: false };
@@ -175,7 +179,7 @@ export type AuthFailureKind = 'missing-session' | 'setup-not-run' | 'setup-faile
 /** Which auth family (if any) a failure belongs to — null means "not auth". */
 export function classifyAuthFailure(
   error: string | undefined,
-  opts: { hasCredentials?: boolean } = {},
+  opts: { hasCredentials?: boolean } = {}
 ): AuthFailureKind | null {
   if (!error) return null;
   const missingSession =

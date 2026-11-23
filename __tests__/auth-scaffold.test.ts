@@ -16,14 +16,29 @@ jest.mock('fs', () => {
 
 describe('needsAuthScaffold', () => {
   it('detects storageState references in generated specs', () => {
-    expect(needsAuthScaffold([{ filename: 'a.spec.ts', code: "test.use({ storageState: 'playwright/.auth/user.json' })", description: '', confidence: 1 }])).toBe(true);
-    expect(needsAuthScaffold([{ filename: 'b.spec.ts', code: 'await page.goto("/")', description: '', confidence: 1 }])).toBe(false);
+    expect(
+      needsAuthScaffold([
+        {
+          filename: 'a.spec.ts',
+          code: "test.use({ storageState: 'playwright/.auth/user.json' })",
+          description: '',
+          confidence: 1,
+        },
+      ])
+    ).toBe(true);
+    expect(
+      needsAuthScaffold([
+        { filename: 'b.spec.ts', code: 'await page.goto("/")', description: '', confidence: 1 },
+      ])
+    ).toBe(false);
   });
 });
 
 describe('loginPathFromJourneys', () => {
   it('extracts a mentioned login path', () => {
-    expect(loginPathFromJourneys(['Sign in with email at /account/login then browse'])).toBe('/account/login');
+    expect(loginPathFromJourneys(['Sign in with email at /account/login then browse'])).toBe(
+      '/account/login'
+    );
     expect(loginPathFromJourneys(['Visit /signin and authenticate'])).toBe('/signin');
   });
   it('defaults to /login', () => {
@@ -52,7 +67,11 @@ describe('writeAuthScaffold', () => {
     const r = writeAuthScaffold('/work', 'e2e', '/login');
     expect(r.path).toContain('e2e/auth.setup.ts');
     expect(r.created).toBe(true);
-    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('auth.setup.ts'), expect.stringContaining('TEST_USER_EMAIL'), 'utf-8');
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('auth.setup.ts'),
+      expect.stringContaining('TEST_USER_EMAIL'),
+      'utf-8'
+    );
   });
 
   // GC-043: the customer's auth.setup.ts is theirs ("this file is yours") — a
@@ -69,12 +88,24 @@ describe('writeAuthScaffold', () => {
 
 describe('isAuthSetupFailure', () => {
   it('classifies the missing-storageState family', () => {
-    expect(isAuthSetupFailure("Error: ENOENT: no such file or directory, open 'playwright/.auth/user.json'")).toBe(true);
-    expect(isAuthSetupFailure('Error reading storage state from playwright/.auth/user.json')).toBe(true);
-    expect(isAuthSetupFailure('TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will be skipped')).toBe(true);
+    expect(
+      isAuthSetupFailure(
+        "Error: ENOENT: no such file or directory, open 'playwright/.auth/user.json'"
+      )
+    ).toBe(true);
+    expect(isAuthSetupFailure('Error reading storage state from playwright/.auth/user.json')).toBe(
+      true
+    );
+    expect(
+      isAuthSetupFailure(
+        'TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will be skipped'
+      )
+    ).toBe(true);
   });
   it('does not classify ordinary failures', () => {
-    expect(isAuthSetupFailure('strict mode violation: getByText resolved to 2 elements')).toBe(false);
+    expect(isAuthSetupFailure('strict mode violation: getByText resolved to 2 elements')).toBe(
+      false
+    );
     expect(isAuthSetupFailure(undefined)).toBe(false);
   });
 });
@@ -101,38 +132,62 @@ describe('isAuthSetupFailure — setup-execution failures', () => {
 
 describe('isAuthSetupFailure — must NOT fire on ordinary failures (review findings)', () => {
   it('ignores a spec failure whose trace merely mentions auth.setup.ts', () => {
-    expect(isAuthSetupFailure('Error: expected visible\n    at e2e/cart.spec.ts:9\n  (session from auth.setup.ts)')).toBe(false);
+    expect(
+      isAuthSetupFailure(
+        'Error: expected visible\n    at e2e/cart.spec.ts:9\n  (session from auth.setup.ts)'
+      )
+    ).toBe(false);
   });
 
   it('ignores a passing setup that logs to stdout (no failure marker)', () => {
-    expect(isAuthSetupFailure('  [setup] › e2e/auth.setup.ts:16:6 › authenticate\nsigned in as test user')).toBe(false);
+    expect(
+      isAuthSetupFailure(
+        '  [setup] › e2e/auth.setup.ts:16:6 › authenticate\nsigned in as test user'
+      )
+    ).toBe(false);
   });
 
   it('ignores a spec named like the scaffold running in the normal project', () => {
-    expect(isAuthSetupFailure('  1) [chromium] › e2e/auth.setup.ts:3:1 › smoke\n    Error: boom')).toBe(false);
+    expect(
+      isAuthSetupFailure('  1) [chromium] › e2e/auth.setup.ts:3:1 › smoke\n    Error: boom')
+    ).toBe(false);
   });
 
   it('ignores "did not run" without any auth.setup.ts involvement', () => {
-    expect(isAuthSetupFailure('  1) [chromium] › e2e/cart.spec.ts:2:1 › x\n  2 did not run')).toBe(false);
+    expect(isAuthSetupFailure('  1) [chromium] › e2e/cart.spec.ts:2:1 › x\n  2 did not run')).toBe(
+      false
+    );
   });
 });
 
 describe('classifyAuthFailure families', () => {
   it('separates missing-session from setup-failed', () => {
-    expect(classifyAuthFailure("ENOENT: no such file or directory, open 'playwright/.auth/user.json'")).toBe('missing-session');
-    expect(classifyAuthFailure('  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n TimeoutError\n 3 did not run')).toBe('setup-failed');
+    expect(
+      classifyAuthFailure("ENOENT: no such file or directory, open 'playwright/.auth/user.json'")
+    ).toBe('missing-session');
+    expect(
+      classifyAuthFailure(
+        '  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n TimeoutError\n 3 did not run'
+      )
+    ).toBe('setup-failed');
     expect(classifyAuthFailure('strict mode violation')).toBeNull();
   });
 
   // GC-044: with the secrets present, a missing session file means the setup
   // never ran for this spec — telling the customer to "add the secrets" is wrong.
   it('reports setup-not-run instead of missing-session when credentials are present', () => {
-    const enoent = "Error reading storage state from playwright/.auth/user.json:\nENOENT: no such file or directory, open 'playwright/.auth/user.json'";
+    const enoent =
+      "Error reading storage state from playwright/.auth/user.json:\nENOENT: no such file or directory, open 'playwright/.auth/user.json'";
     expect(classifyAuthFailure(enoent, { hasCredentials: true })).toBe('setup-not-run');
     expect(classifyAuthFailure(enoent, { hasCredentials: false })).toBe('missing-session');
     expect(classifyAuthFailure(enoent)).toBe('missing-session');
     // a genuinely failing setup is still setup-failed either way
-    expect(classifyAuthFailure('  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n TimeoutError\n 3 did not run', { hasCredentials: true })).toBe('setup-failed');
+    expect(
+      classifyAuthFailure(
+        '  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n TimeoutError\n 3 did not run',
+        { hasCredentials: true }
+      )
+    ).toBe('setup-failed');
     expect(isAuthSetupFailure(enoent)).toBe(true);
   });
 });
@@ -153,7 +208,10 @@ describe('authSetupSource — generated file is valid TypeScript', () => {
   it('parses without syntax errors', () => {
     const ts = jest.requireActual('typescript');
     const src = authSetupSource('/login');
-    const { diagnostics } = ts.transpileModule(src, { reportDiagnostics: true, compilerOptions: { module: ts.ModuleKind.ESNext } });
+    const { diagnostics } = ts.transpileModule(src, {
+      reportDiagnostics: true,
+      compilerOptions: { module: ts.ModuleKind.ESNext },
+    });
     expect((diagnostics ?? []).map((d: { messageText: unknown }) => d.messageText)).toEqual([]);
     // Sanity: the same check must flag a broken template.
     const broken = ts.transpileModule("const x = 'unterminated\n';", { reportDiagnostics: true });
@@ -187,11 +245,14 @@ describe('authSetupSource — session reuse', () => {
     expect(src).not.toContain('throw new Error(');
     // Visible in the CI log, the report annotations, and the skip reason.
     expect(src).toContain("console.error('\\n⚠️  GreenCI auth.setup.ts: ' + message");
-    expect(src).toContain("setup.info().annotations.push({ type: 'greenci', description: message })");
+    expect(src).toContain(
+      "setup.info().annotations.push({ type: 'greenci', description: message })"
+    );
     expect(src).toContain('setup.skip(true, message)');
     expect(src).toContain('Add both as repository secrets');
     // The first line is what GreenCI classifies on.
-    const line = 'TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will fail until they are.';
+    const line =
+      'TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will fail until they are.';
     expect(src).toContain(line);
     expect(isAuthSetupFailure(line)).toBe(true);
     expect(classifyAuthFailure(line, { hasCredentials: false })).toBe('missing-session');

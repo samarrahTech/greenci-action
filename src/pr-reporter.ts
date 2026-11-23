@@ -43,7 +43,10 @@ export async function postReport(
 
 /** One-line code span: markdown, HTML and mentions inside it render as text. */
 function inertText(text: string): string {
-  const oneLine = text.replace(/[\r\n]+/g, ' ').replace(/`/g, "'").trim();
+  const oneLine = text
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/`/g, "'")
+    .trim();
   return '`' + oneLine + '`';
 }
 
@@ -51,7 +54,9 @@ function buildReportBody(report: RunReport): string {
   const hasSuspectedBugs = (report.suspectedBugs?.length ?? 0) > 0;
   const statusEmoji = hasSuspectedBugs
     ? '🚨'
-    : report.generationError || report.testsFailed > 0 || (report.testsGenerated === 0 && !report.skippedReason)
+    : report.generationError ||
+        report.testsFailed > 0 ||
+        (report.testsGenerated === 0 && !report.skippedReason)
       ? '⚠️'
       : report.skippedReason && report.testsGenerated === 0
         ? '⏭️'

@@ -27,7 +27,12 @@ describe('writeTests with ProtectExisting', () => {
     fs.writeFileSync(path.join(work, 'e2e', name), code);
   };
   const read = (name: string) => fs.readFileSync(path.join(work, 'e2e', name), 'utf-8');
-  const gen = (filename: string, code = 'generated') => ({ filename, code, description: '', confidence: 1 });
+  const gen = (filename: string, code = 'generated') => ({
+    filename,
+    code,
+    description: '',
+    confidence: 1,
+  });
 
   beforeEach(() => {
     work = fs.mkdtempSync(path.join(os.tmpdir(), 'greenci-protect-'));
@@ -42,7 +47,9 @@ describe('writeTests with ProtectExisting', () => {
     expect(read('auth-login.spec.ts')).toBe('theirs');
     expect(read('auth-login-bootstrap.spec.ts')).toBe('generated');
     expect(tests[0].filename).toBe('auth-login-bootstrap.spec.ts');
-    expect(protect.renamed).toEqual([{ from: 'auth-login.spec.ts', to: 'auth-login-bootstrap.spec.ts' }]);
+    expect(protect.renamed).toEqual([
+      { from: 'auth-login.spec.ts', to: 'auth-login-bootstrap.spec.ts' },
+    ]);
   });
 
   it('protects files the prompt list would skip: a 60KB spec, a .spec.tsx, a .spec.mts, a nested path', async () => {
@@ -51,7 +58,12 @@ describe('writeTests with ProtectExisting', () => {
     mk('cart.spec.mts');
     mk('nested/flow.test.js');
     const protect: ProtectExisting = { owned: new Set(), renamed: [] };
-    const tests = [gen('big.spec.ts'), gen('login.spec.tsx'), gen('cart.spec.mts'), gen('e2e/nested/flow.test.js')];
+    const tests = [
+      gen('big.spec.ts'),
+      gen('login.spec.tsx'),
+      gen('cart.spec.mts'),
+      gen('e2e/nested/flow.test.js'),
+    ];
     await writeTests(tests, work, 'e2e', protect);
     expect(tests.map((t) => t.filename)).toEqual([
       'big-bootstrap.spec.ts',
@@ -86,18 +98,37 @@ describe('writeTests with ProtectExisting', () => {
     const protect: ProtectExisting = { owned: new Set(), renamed: [] };
     const tests = [gen('auth-login.spec.ts', 'v1')];
     await writeTests(tests, work, 'e2e', protect);
-    const runSpy = jest.spyOn(testRunner, 'runTests').mockResolvedValue([{ filename: 'auth-login-bootstrap.spec.ts', passed: true, duration: 1 }]);
+    const runSpy = jest
+      .spyOn(testRunner, 'runTests')
+      .mockResolvedValue([{ filename: 'auth-login-bootstrap.spec.ts', passed: true, duration: 1 }]);
     const llm = {
-      healTest: jest.fn().mockResolvedValue({ ...gen('auth-login.spec.ts', 'healed'), verdict: { classification: 'test-issue', reasoning: '' } }),
+      healTest: jest.fn().mockResolvedValue({
+        ...gen('auth-login.spec.ts', 'healed'),
+        verdict: { classification: 'test-issue', reasoning: '' },
+      }),
     } as unknown as ILLMClient;
-    const config = { testDir: 'e2e', baseUrl: 'http://localhost:3000', maxRetries: 1 } as ActionConfig;
+    const config = {
+      testDir: 'e2e',
+      baseUrl: 'http://localhost:3000',
+      maxRetries: 1,
+    } as ActionConfig;
     const out = await healFailedTests(
-      [{ test: tests[0], result: { filename: tests[0].filename, passed: false, duration: 1, error: 'strict mode violation' } }],
+      [
+        {
+          test: tests[0],
+          result: {
+            filename: tests[0].filename,
+            passed: false,
+            duration: 1,
+            error: 'strict mode violation',
+          },
+        },
+      ],
       { routes: [], components: [], apiEndpoints: [], modifiedFiles: [], summary: '' },
       config,
       llm,
       work,
-      protect,
+      protect
     );
     runSpy.mockRestore();
     expect(read('auth-login.spec.ts')).toBe('theirs');

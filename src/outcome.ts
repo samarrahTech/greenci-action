@@ -7,7 +7,10 @@ import { ActionConfig, RunReport } from './types';
  * who trusts the check looked. Failed tests now fail the check, unless the
  * workflow asks for report-only with `fail-on-test-failure: false`.
  */
-export function concludeRun(report: Pick<RunReport, 'testsFailed' | 'testsPassed' | 'testsGenerated'>, config: ActionConfig): void {
+export function concludeRun(
+  report: Pick<RunReport, 'testsFailed' | 'testsPassed' | 'testsGenerated'>,
+  config: ActionConfig
+): void {
   core.info(`🌱 GreenCI complete: ${report.testsPassed}/${report.testsGenerated} tests passing`);
   if (report.testsFailed === 0) return;
 
@@ -15,6 +18,8 @@ export function concludeRun(report: Pick<RunReport, 'testsFailed' | 'testsPassed
   if (config.failOnTestFailure === false) {
     core.warning(`${message} (fail-on-test-failure is false, so the check stays green)`);
   } else {
-    core.setFailed(`${message}. See the GreenCI report on the pull request. Set fail-on-test-failure: false to report without failing the check.`);
+    core.setFailed(
+      `${message}. See the GreenCI report on the pull request. Set fail-on-test-failure: false to report without failing the check.`
+    );
   }
 }

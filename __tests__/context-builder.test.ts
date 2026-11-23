@@ -59,10 +59,7 @@ describe('extractRoutes', () => {
   });
 
   it('should return empty for non-route files', () => {
-    const files = [
-      makeFile('src/utils/helpers.ts'),
-      makeFile('src/components/Button.tsx'),
-    ];
+    const files = [makeFile('src/utils/helpers.ts'), makeFile('src/components/Button.tsx')];
     expect(extractRoutes(files)).toHaveLength(0);
   });
 });
@@ -70,7 +67,11 @@ describe('extractRoutes', () => {
 describe('extractComponents', () => {
   it('should detect component files', () => {
     const files = [
-      makeFile('src/components/Button.tsx', 'added', `+export default function Button({ label }: { label: string }) {`),
+      makeFile(
+        'src/components/Button.tsx',
+        'added',
+        `+export default function Button({ label }: { label: string }) {`
+      ),
     ];
     const components = extractComponents(files);
     expect(components).toHaveLength(1);

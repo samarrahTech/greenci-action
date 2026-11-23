@@ -13,10 +13,19 @@ const CONVERSION_RULES: ConversionRule[] = [
   // Test structure
   { pattern: /\bdescribe\s*\(/g, replace: 'test.describe(' },
   { pattern: /\bit\s*\(/g, replace: 'test(' },
-  { pattern: /\bbefore\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g, replace: 'test.beforeAll($1' },
-  { pattern: /\bbeforeEach\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g, replace: 'test.beforeEach($1' },
+  {
+    pattern: /\bbefore\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g,
+    replace: 'test.beforeAll($1',
+  },
+  {
+    pattern: /\bbeforeEach\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g,
+    replace: 'test.beforeEach($1',
+  },
   { pattern: /\bafter\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g, replace: 'test.afterAll($1' },
-  { pattern: /\bafterEach\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g, replace: 'test.afterEach($1' },
+  {
+    pattern: /\bafterEach\s*\(\s*((?:async\s+)?function|\(|async\s*\()/g,
+    replace: 'test.afterEach($1',
+  },
 
   // Navigation
   { pattern: /cy\.visit\s*\(([^)]+)\)/g, replace: 'await page.goto($1)' },
@@ -25,49 +34,92 @@ const CONVERSION_RULES: ConversionRule[] = [
   { pattern: /cy\.get\s*\(([^)]+)\)\.click\s*\(\)/g, replace: 'await page.locator($1).click()' },
 
   // Selectors - type → fill
-  { pattern: /cy\.get\s*\(([^)]+)\)\.type\s*\(([^)]+)\)/g, replace: 'await page.locator($1).fill($2)' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.type\s*\(([^)]+)\)/g,
+    replace: 'await page.locator($1).fill($2)',
+  },
 
   // Selectors - clear
   { pattern: /cy\.get\s*\(([^)]+)\)\.clear\s*\(\)/g, replace: 'await page.locator($1).clear()' },
 
   // Assertions - should('be.visible')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.visible['"`]\s*\)/g, replace: 'await expect(page.locator($1)).toBeVisible()' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.visible['"`]\s*\)/g,
+    replace: 'await expect(page.locator($1)).toBeVisible()',
+  },
 
   // Assertions - should('not.be.visible')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]not\.be\.visible['"`]\s*\)/g, replace: 'await expect(page.locator($1)).not.toBeVisible()' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]not\.be\.visible['"`]\s*\)/g,
+    replace: 'await expect(page.locator($1)).not.toBeVisible()',
+  },
 
   // Assertions - should('exist')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]exist['"`]\s*\)/g, replace: 'await expect(page.locator($1)).toBeAttached()' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]exist['"`]\s*\)/g,
+    replace: 'await expect(page.locator($1)).toBeAttached()',
+  },
 
   // Assertions - should('not.exist')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]not\.exist['"`]\s*\)/g, replace: 'await expect(page.locator($1)).not.toBeAttached()' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]not\.exist['"`]\s*\)/g,
+    replace: 'await expect(page.locator($1)).not.toBeAttached()',
+  },
 
   // Assertions - should('have.text', 'x')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.text['"`]\s*,\s*([^)]+)\)/g, replace: 'await expect(page.locator($1)).toHaveText($2)' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.text['"`]\s*,\s*([^)]+)\)/g,
+    replace: 'await expect(page.locator($1)).toHaveText($2)',
+  },
 
   // Assertions - should('contain', 'x')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]contain['"`]\s*,\s*([^)]+)\)/g, replace: 'await expect(page.locator($1)).toContainText($2)' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]contain['"`]\s*,\s*([^)]+)\)/g,
+    replace: 'await expect(page.locator($1)).toContainText($2)',
+  },
 
   // Assertions - should('have.value', 'x')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.value['"`]\s*,\s*([^)]+)\)/g, replace: 'await expect(page.locator($1)).toHaveValue($2)' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.value['"`]\s*,\s*([^)]+)\)/g,
+    replace: 'await expect(page.locator($1)).toHaveValue($2)',
+  },
 
   // Assertions - should('have.length', n)
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.length['"`]\s*,\s*([^)]+)\)/g, replace: 'await expect(page.locator($1)).toHaveCount($2)' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.length['"`]\s*,\s*([^)]+)\)/g,
+    replace: 'await expect(page.locator($1)).toHaveCount($2)',
+  },
 
   // Assertions - should('be.disabled')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.disabled['"`]\s*\)/g, replace: 'await expect(page.locator($1)).toBeDisabled()' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.disabled['"`]\s*\)/g,
+    replace: 'await expect(page.locator($1)).toBeDisabled()',
+  },
 
   // Assertions - should('be.enabled')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.enabled['"`]\s*\)/g, replace: 'await expect(page.locator($1)).toBeEnabled()' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.enabled['"`]\s*\)/g,
+    replace: 'await expect(page.locator($1)).toBeEnabled()',
+  },
 
   // Assertions - should('be.checked')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.checked['"`]\s*\)/g, replace: 'await expect(page.locator($1)).toBeChecked()' },
+  {
+    pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]be\.checked['"`]\s*\)/g,
+    replace: 'await expect(page.locator($1)).toBeChecked()',
+  },
 
   // Assertions - should('have.attr', 'x', 'y')
-  { pattern: /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.attr['"`]\s*,\s*([^,)]+),\s*([^)]+)\)/g, replace: 'await expect(page.locator($1)).toHaveAttribute($2, $3)' },
+  {
+    pattern:
+      /cy\.get\s*\(([^)]+)\)\.should\s*\(\s*['"`]have\.attr['"`]\s*,\s*([^,)]+),\s*([^)]+)\)/g,
+    replace: 'await expect(page.locator($1)).toHaveAttribute($2, $3)',
+  },
 
   // cy.contains
-  { pattern: /cy\.contains\s*\(([^)]+)\)\.click\s*\(\)/g, replace: 'await page.getByText($1).click()' },
+  {
+    pattern: /cy\.contains\s*\(([^)]+)\)\.click\s*\(\)/g,
+    replace: 'await page.getByText($1).click()',
+  },
   { pattern: /cy\.contains\s*\(([^)]+)\)/g, replace: 'page.getByText($1)' },
 
   // cy.get (generic - must come after more specific patterns)
@@ -87,32 +139,56 @@ const CONVERSION_RULES: ConversionRule[] = [
   { pattern: /cy\.screenshot\s*\(([^)]+)\)/g, replace: 'await page.screenshot({ path: $1 })' },
 
   // cy.wait with alias
-  { pattern: /cy\.wait\s*\(\s*['"`]@([^'"`]+)['"`]\s*\)/g, replace: "// TODO: Replace with appropriate waitForResponse for alias '$1'" },
+  {
+    pattern: /cy\.wait\s*\(\s*['"`]@([^'"`]+)['"`]\s*\)/g,
+    replace: "// TODO: Replace with appropriate waitForResponse for alias '$1'",
+  },
 
   // cy.wait with number (timeout)
   { pattern: /cy\.wait\s*\(\s*(\d+)\s*\)/g, replace: 'await page.waitForTimeout($1)' },
 
   // Viewport
-  { pattern: /cy\.viewport\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/g, replace: 'test.use({ viewport: { width: $1, height: $2 } })' },
+  {
+    pattern: /cy\.viewport\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/g,
+    replace: 'test.use({ viewport: { width: $1, height: $2 } })',
+  },
 
   // Env vars
   { pattern: /Cypress\.env\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g, replace: "process.env['$1']" },
 
   // cy.fixture
-  { pattern: /cy\.fixture\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g, replace: "// TODO: Load fixture '$1' - use JSON.parse(fs.readFileSync('fixtures/$1.json', 'utf-8'))" },
+  {
+    pattern: /cy\.fixture\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+    replace:
+      "// TODO: Load fixture '$1' - use JSON.parse(fs.readFileSync('fixtures/$1.json', 'utf-8'))",
+  },
 
   // Intercept with alias
-  { pattern: /cy\.intercept\s*\(\s*['"`](\w+)['"`]\s*,\s*(['"`][^'"`]+['"`])\s*\)\.as\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g, replace: "await page.route($2, route => route.fulfill()) // alias: '$3', method: $1" },
+  {
+    pattern:
+      /cy\.intercept\s*\(\s*['"`](\w+)['"`]\s*,\s*(['"`][^'"`]+['"`])\s*\)\.as\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+    replace: "await page.route($2, route => route.fulfill()) // alias: '$3', method: $1",
+  },
 
   // Simple intercept
-  { pattern: /cy\.intercept\s*\(\s*(['"`][^'"`]+['"`])\s*\)/g, replace: 'await page.route($1, route => route.fulfill())' },
+  {
+    pattern: /cy\.intercept\s*\(\s*(['"`][^'"`]+['"`])\s*\)/g,
+    replace: 'await page.route($1, route => route.fulfill())',
+  },
 
   // cy.request
-  { pattern: /cy\.request\s*\(\s*['"`](GET|POST|PUT|DELETE|PATCH)['"`]\s*,\s*([^)]+)\)/g, replace: 'await request.$1($2)' },
+  {
+    pattern: /cy\.request\s*\(\s*['"`](GET|POST|PUT|DELETE|PATCH)['"`]\s*,\s*([^)]+)\)/g,
+    replace: 'await request.$1($2)',
+  },
   { pattern: /cy\.request\s*\(\s*([^)]+)\)/g, replace: 'await request.get($1)' },
 ];
 
-export function convertCypressToPlaywright(source: string): { code: string; notes: string[]; confidence: number } {
+export function convertCypressToPlaywright(source: string): {
+  code: string;
+  notes: string[];
+  confidence: number;
+} {
   const notes: string[] = [];
   let code = source;
   let totalCypressPatterns = 0;
@@ -139,8 +215,8 @@ export function convertCypressToPlaywright(source: string): { code: string; note
   });
 
   // Check for remaining unconverted patterns
-  const remainingCy = (code.match(/cy\.\w+/g) || []);
-  const remainingCypressEnv = (code.match(/Cypress\.\w+/g) || []);
+  const remainingCy = code.match(/cy\.\w+/g) || [];
+  const remainingCypressEnv = code.match(/Cypress\.\w+/g) || [];
   if (remainingCy.length > 0) {
     notes.push(`Unconverted Cypress commands: ${[...new Set(remainingCy)].join(', ')}`);
   }
@@ -159,9 +235,10 @@ export function convertCypressToPlaywright(source: string): { code: string; note
 
   // Calculate confidence
   const unconvertedCount = remainingCy.length + remainingCypressEnv.length;
-  let confidence = totalCypressPatterns > 0
-    ? Math.max(0.1, 1 - (unconvertedCount + todoCount) / totalCypressPatterns)
-    : 0.9;
+  let confidence =
+    totalCypressPatterns > 0
+      ? Math.max(0.1, 1 - (unconvertedCount + todoCount) / totalCypressPatterns)
+      : 0.9;
   confidence = Math.round(confidence * 100) / 100;
 
   return { code, notes, confidence };
