@@ -9,6 +9,25 @@ jobs:
   ci:
     uses: samarrahTech/samarratech-workflows/.github/workflows/node-ci.yml@v1
 
+  # `npm run format:check` existed but nothing ran it, and the tree drifted to
+  # 49 unformatted files. Enforced here so the script means something.
+  format:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run format:check
+
   # The Azure DevOps task is a separate package that imports from ../src.
   # Nothing compiled it in CI, so it could stop building without anyone
   # knowing. Typecheck and bundle it on every change.

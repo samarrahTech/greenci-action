@@ -1,5 +1,12 @@
 import * as core from '@actions/core';
-import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, SuspectedBug, TestResult } from './types';
+import {
+  ActionConfig,
+  ChangeContext,
+  GeneratedTest,
+  ILLMClient,
+  SuspectedBug,
+  TestResult,
+} from './types';
 import { runTests, writeTests, type ProtectExisting, type SessionRenewal } from './test-runner';
 import { classifyAuthFailure, hasTestCredentials, type AuthFailureKind } from './auth-scaffold';
 import { lintAssertions } from './assertion-lint';
@@ -21,7 +28,7 @@ export async function healFailedTests(
   llmClient: ILLMClient,
   workDir: string,
   protect?: ProtectExisting,
-  session?: SessionRenewal,
+  session?: SessionRenewal
 ): Promise<HealingOutcome> {
   const healed: GeneratedTest[] = [];
   const results: TestResult[] = [];
@@ -128,7 +135,9 @@ export async function healFailedTests(
         // The app went away between runs: stop, another heal cannot help.
         const wentDown = unreachableOrigin(healedResult.error, healedTest.code);
         if (wentDown) {
-          core.warning(`🔌 ${test.filename}: nothing answered at ${wentDown} on the rerun — stopping heal`);
+          core.warning(
+            `🔌 ${test.filename}: nothing answered at ${wentDown} on the rerun — stopping heal`
+          );
           currentResult = unreachableResult(healedResult, wentDown);
           bugSuspected = true; // suppresses the "could not be healed after N attempts" line: N attempts were not made
           break;
@@ -137,7 +146,10 @@ export async function healFailedTests(
         currentTest = healedTest;
         // A rerun that broke before the page loaded leaves no snapshot; the
         // last page seen is still the best evidence for the next attempt.
-        currentResult = { ...healedResult, pageSnapshot: healedResult.pageSnapshot ?? currentResult.pageSnapshot };
+        currentResult = {
+          ...healedResult,
+          pageSnapshot: healedResult.pageSnapshot ?? currentResult.pageSnapshot,
+        };
         healError = healedResult.error || 'Unknown error';
       } catch (error) {
         core.warning(`Self-healing attempt ${attempt} failed: ${error}`);

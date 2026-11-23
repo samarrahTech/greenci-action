@@ -20,12 +20,16 @@ describe('resolveTestPath', () => {
     });
 
     it('rejects absolute paths', () => {
-      expect(() => resolveTestPath(WORK, DIR, '/etc/cron.d/evil.spec.ts')).toThrow(UnsafeTestPathError);
+      expect(() => resolveTestPath(WORK, DIR, '/etc/cron.d/evil.spec.ts')).toThrow(
+        UnsafeTestPathError
+      );
     });
 
     it('rejects windows drive and UNC paths', () => {
       expect(() => resolveTestPath(WORK, DIR, 'C:/evil.spec.ts')).toThrow(UnsafeTestPathError);
-      expect(() => resolveTestPath(WORK, DIR, 'a\\..\\..\\evil.spec.ts')).toThrow(UnsafeTestPathError);
+      expect(() => resolveTestPath(WORK, DIR, 'a\\..\\..\\evil.spec.ts')).toThrow(
+        UnsafeTestPathError
+      );
     });
 
     it('rejects a null byte', () => {
@@ -41,7 +45,9 @@ describe('resolveTestPath', () => {
     it('rejects empty and non-string filenames', () => {
       expect(() => resolveTestPath(WORK, DIR, '')).toThrow(UnsafeTestPathError);
       expect(() => resolveTestPath(WORK, DIR, '   ')).toThrow(UnsafeTestPathError);
-      expect(() => resolveTestPath(WORK, DIR, undefined as unknown as string)).toThrow(UnsafeTestPathError);
+      expect(() => resolveTestPath(WORK, DIR, undefined as unknown as string)).toThrow(
+        UnsafeTestPathError
+      );
     });
 
     it('rejects a name resolving to the test dir itself', () => {
@@ -71,18 +77,22 @@ describe('resolveTestPath', () => {
     });
 
     it('allows nested subdirectories', () => {
-      expect(resolveTestPath(WORK, DIR, 'auth/signup.spec.ts').relative).toBe(path.join('auth', 'signup.spec.ts'));
+      expect(resolveTestPath(WORK, DIR, 'auth/signup.spec.ts').relative).toBe(
+        path.join('auth', 'signup.spec.ts')
+      );
     });
 
     it.each(['a.spec.ts', 'a.spec.tsx', 'a.spec.js', 'a.spec.jsx', 'a.spec.mts', 'a.spec.mjs'])(
       'accepts suffix %s',
       (filename) => {
         expect(() => resolveTestPath(WORK, DIR, filename)).not.toThrow();
-      },
+      }
     );
 
     it('honours a custom test dir', () => {
-      expect(resolveTestPath(WORK, 'tests/e2e', 'a.spec.ts').absolute).toBe(path.join(WORK, 'tests/e2e', 'a.spec.ts'));
+      expect(resolveTestPath(WORK, 'tests/e2e', 'a.spec.ts').absolute).toBe(
+        path.join(WORK, 'tests/e2e', 'a.spec.ts')
+      );
     });
   });
 

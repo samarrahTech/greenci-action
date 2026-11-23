@@ -25,7 +25,10 @@ export function findPlaywrightConfig(workDir: string): string | null {
 }
 
 /** Run-only files: written next to the repo's config, removed when the run ends, never committed. */
-export const BASE_URL_OVERRIDE_CONFIGS = ['playwright.greenci.config.ts', 'playwright.greenci.config.mjs'];
+export const BASE_URL_OVERRIDE_CONFIGS = [
+  'playwright.greenci.config.ts',
+  'playwright.greenci.config.mjs',
+];
 
 /** An ES-module config gets an ES-module wrapper, so it is imported, never require()d. */
 export function overrideConfigName(configFile: string): string {
@@ -91,7 +94,8 @@ export default {
  * cannot be read or written; the caller decides how to report that.
  */
 export function writeBaseUrlOverride(workDir: string, configFile: string): string | null {
-  if (fs.readFileSync(path.join(workDir, configFile), 'utf-8').includes(GENERATED_CONFIG_MARKER)) return null;
+  if (fs.readFileSync(path.join(workDir, configFile), 'utf-8').includes(GENERATED_CONFIG_MARKER))
+    return null;
   const name = overrideConfigName(configFile);
   fs.writeFileSync(path.join(workDir, name), baseUrlOverrideSource(configFile), 'utf-8');
   return name;

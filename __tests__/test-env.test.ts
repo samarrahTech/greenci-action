@@ -39,7 +39,16 @@ describe('buildTestEnv', () => {
 
   it('leaves no secret value anywhere in the resulting env', () => {
     const values = Object.values(env).join('\n');
-    for (const secret of ['gci_live_secret', 'ghs_secret', 'sk-ant-secret', 'sk-secret', 'aws-secret', 'runtime-secret', 'oidc-secret', 'npm-secret']) {
+    for (const secret of [
+      'gci_live_secret',
+      'ghs_secret',
+      'sk-ant-secret',
+      'sk-secret',
+      'aws-secret',
+      'runtime-secret',
+      'oidc-secret',
+      'npm-secret',
+    ]) {
       expect(values).not.toContain(secret);
     }
   });
@@ -84,7 +93,11 @@ describe('Azure DevOps credentials', () => {
       TEST_USER_EMAIL: 'qa@example.com',
       PATH: '/usr/bin',
     });
-    expect(env).toEqual({ BUILD_SOURCESDIRECTORY: '/work', TEST_USER_EMAIL: 'qa@example.com', PATH: '/usr/bin' });
+    expect(env).toEqual({
+      BUILD_SOURCESDIRECTORY: '/work',
+      TEST_USER_EMAIL: 'qa@example.com',
+      PATH: '/usr/bin',
+    });
   });
 
   // Rails and Django apps need these to boot under Playwright's webServer.

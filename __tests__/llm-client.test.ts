@@ -23,7 +23,9 @@ const mockContext: ChangeContext = {
   routes: [{ path: '/dashboard', file: 'src/pages/Dashboard.tsx', isNew: true }],
   components: [{ name: 'Button', file: 'src/Button.tsx', isNew: false }],
   apiEndpoints: [{ path: '/api/users', method: 'GET', file: 'src/api.ts', isNew: true }],
-  modifiedFiles: [{ filename: 'src/app.ts', status: 'modified', additions: 5, deletions: 2, patch: '+line' }],
+  modifiedFiles: [
+    { filename: 'src/app.ts', status: 'modified', additions: 5, deletions: 2, patch: '+line' },
+  ],
   summary: 'test',
 };
 
@@ -53,12 +55,21 @@ describe('createLLMClient', () => {
   it('should throw a clear error when a BYO env key is missing', () => {
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
-    expect(() => createLLMClient({ ...mockConfig, llmProvider: 'anthropic' })).toThrow('ANTHROPIC_API_KEY');
-    expect(() => createLLMClient({ ...mockConfig, llmProvider: 'openai' })).toThrow('OPENAI_API_KEY');
+    expect(() => createLLMClient({ ...mockConfig, llmProvider: 'anthropic' })).toThrow(
+      'ANTHROPIC_API_KEY'
+    );
+    expect(() => createLLMClient({ ...mockConfig, llmProvider: 'openai' })).toThrow(
+      'OPENAI_API_KEY'
+    );
   });
 
   it('should throw for unknown provider', () => {
-    expect(() => createLLMClient({ ...mockConfig, llmProvider: 'unknown' as unknown as ActionConfig['llmProvider'] })).toThrow('Unknown LLM provider');
+    expect(() =>
+      createLLMClient({
+        ...mockConfig,
+        llmProvider: 'unknown' as unknown as ActionConfig['llmProvider'],
+      })
+    ).toThrow('Unknown LLM provider');
   });
 });
 
@@ -77,7 +88,9 @@ describe('GreenCIClient', () => {
 
   describe('generateTests', () => {
     it('should call API and return tests on success', async () => {
-      const mockTests = [{ filename: 'e2e/test.spec.ts', code: 'test code', description: 'desc', confidence: 0.9 }];
+      const mockTests = [
+        { filename: 'e2e/test.spec.ts', code: 'test code', description: 'desc', confidence: 0.9 },
+      ];
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         json: async () => ({ tests: mockTests }),
@@ -92,7 +105,11 @@ describe('GreenCIClient', () => {
     });
 
     it('should throw on API error instead of committing mock tests', async () => {
-      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: async () => 'boom',
+      });
       await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow(
         'GreenCI test generation failed (HTTP 500)'
       );
@@ -113,7 +130,12 @@ describe('GreenCIClient', () => {
       ok: false,
       status: 502,
       text: async () =>
-        JSON.stringify({ error: { code: 'NO_TESTS_GENERATED', message: 'The model did not return usable test code. Please retry.' } }),
+        JSON.stringify({
+          error: {
+            code: 'NO_TESTS_GENERATED',
+            message: 'The model did not return usable test code. Please retry.',
+          },
+        }),
     });
 
     it('retries once after a 502 NO_TESTS_GENERATED and uses the retry', async () => {
@@ -121,7 +143,9 @@ describe('GreenCIClient', () => {
       (global.fetch as jest.Mock)
         .mockResolvedValueOnce(noTests502())
         .mockResolvedValueOnce({ ok: true, json: async () => ({ tests: mockTests }) });
-      await expect(client.generateTests(mockContext, mockConfig)).resolves.toEqual({ tests: mockTests });
+      await expect(client.generateTests(mockContext, mockConfig)).resolves.toEqual({
+        tests: mockTests,
+      });
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
 
@@ -134,8 +158,14 @@ describe('GreenCIClient', () => {
     });
 
     it('still throws on other 502s, without retrying', async () => {
-      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 502, text: async () => 'Bad Gateway' });
-      await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow('GreenCI test generation failed (HTTP 502)');
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: false,
+        status: 502,
+        text: async () => 'Bad Gateway',
+      });
+      await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow(
+        'GreenCI test generation failed (HTTP 502)'
+      );
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
@@ -143,7 +173,9 @@ describe('GreenCIClient', () => {
       (global.fetch as jest.Mock)
         .mockResolvedValueOnce(noTests502())
         .mockResolvedValueOnce({ ok: false, status: 429, text: async () => 'quota' });
-      await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow('GreenCI test generation failed (HTTP 429)');
+      await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow(
+        'GreenCI test generation failed (HTTP 429)'
+      );
     });
 
     it('should throw on fetch failure', async () => {
@@ -154,14 +186,24 @@ describe('GreenCIClient', () => {
 
   describe('healTest', () => {
     it('should return healed test on success', async () => {
-      const healedTest = { filename: 'e2e/healed.spec.ts', code: 'healed', description: 'healed', confidence: 0.9 };
+      const healedTest = {
+        filename: 'e2e/healed.spec.ts',
+        code: 'healed',
+        description: 'healed',
+        confidence: 0.9,
+      };
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         json: async () => ({ test: healedTest }),
       });
 
       const request = {
-        test: { filename: 'e2e/test.spec.ts', code: 'broken', description: 'test', confidence: 0.5 },
+        test: {
+          filename: 'e2e/test.spec.ts',
+          code: 'broken',
+          description: 'test',
+          confidence: 0.5,
+        },
         error: 'timeout',
         attempt: 1,
         context: mockContext,
@@ -183,7 +225,9 @@ describe('GreenCIClient', () => {
     it('sends the page snapshot as its own field, not inside the error (GC-092)', async () => {
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
-        json: async () => ({ test: { filename: 'e2e/a.spec.ts', code: 'x', description: '', confidence: 1 } }),
+        json: async () => ({
+          test: { filename: 'e2e/a.spec.ts', code: 'x', description: '', confidence: 1 },
+        }),
       });
 
       await client.healTest(
@@ -194,7 +238,7 @@ describe('GreenCIClient', () => {
           attempt: 1,
           context: mockContext,
         },
-        mockConfig,
+        mockConfig
       );
 
       const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
@@ -205,17 +249,24 @@ describe('GreenCIClient', () => {
     it('sends context arrays as strings, matching the API schema', async () => {
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
-        json: async () => ({ test: { filename: 'e2e/a.spec.ts', code: 'x', description: '', confidence: 1 } }),
+        json: async () => ({
+          test: { filename: 'e2e/a.spec.ts', code: 'x', description: '', confidence: 1 },
+        }),
       });
 
       await client.healTest(
         {
-          test: { filename: 'e2e/test.spec.ts', code: 'broken', description: 'test', confidence: 0.5 },
+          test: {
+            filename: 'e2e/test.spec.ts',
+            code: 'broken',
+            description: 'test',
+            confidence: 0.5,
+          },
           error: 'timeout',
           attempt: 1,
           context: mockContext,
         },
-        mockConfig,
+        mockConfig
       );
 
       const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
@@ -235,18 +286,38 @@ describe('GreenCIClient', () => {
     });
 
     it('should throw on API failure so the heal attempt is not silently wasted', async () => {
-      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500, text: async () => '' });
-      const originalTest = { filename: 'e2e/test.spec.ts', code: 'original', description: 'test', confidence: 0.5 };
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: async () => '',
+      });
+      const originalTest = {
+        filename: 'e2e/test.spec.ts',
+        code: 'original',
+        description: 'test',
+        confidence: 0.5,
+      };
       await expect(
-        client.healTest({ test: originalTest, error: 'err', attempt: 1, context: mockContext }, mockConfig)
+        client.healTest(
+          { test: originalTest, error: 'err', attempt: 1, context: mockContext },
+          mockConfig
+        )
       ).rejects.toThrow('GreenCI heal API returned 500');
     });
 
     it('should throw on network error', async () => {
       (global.fetch as jest.Mock).mockRejectedValue(new Error('fail'));
-      const originalTest = { filename: 'e2e/test.spec.ts', code: 'original', description: 'test', confidence: 0.5 };
+      const originalTest = {
+        filename: 'e2e/test.spec.ts',
+        code: 'original',
+        description: 'test',
+        confidence: 0.5,
+      };
       await expect(
-        client.healTest({ test: originalTest, error: 'err', attempt: 1, context: mockContext }, mockConfig)
+        client.healTest(
+          { test: originalTest, error: 'err', attempt: 1, context: mockContext },
+          mockConfig
+        )
       ).rejects.toThrow('fail');
     });
   });

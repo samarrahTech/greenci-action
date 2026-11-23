@@ -107,7 +107,7 @@ export async function unchangedOnDefaultBranch(
   owner: string,
   repo: string,
   workDir: string,
-  files: { path: string; before: Buffer }[],
+  files: { path: string; before: Buffer }[]
 ): Promise<boolean> {
   const octokit = github.getOctokit(token);
   try {
@@ -119,7 +119,8 @@ export async function unchangedOnDefaultBranch(
         path: path.relative(workDir, file.path).split(path.sep).join('/'),
         ref: repoInfo.default_branch,
       });
-      if (Array.isArray(data) || data.type !== 'file' || data.sha !== gitBlobSha(file.before)) return false;
+      if (Array.isArray(data) || data.type !== 'file' || data.sha !== gitBlobSha(file.before))
+        return false;
     }
     return true;
   } catch {
@@ -139,7 +140,7 @@ export async function createBootstrapPR(
   repo: string,
   testFiles: string[],
   workDir: string,
-  prBody: string,
+  prBody: string
 ): Promise<{ prUrl: string; committedFiles: string[] }> {
   const octokit = github.getOctokit(token);
 
@@ -175,7 +176,12 @@ export async function createBootstrapPR(
     }
     const content = fs.readFileSync(filePath, 'utf-8');
     const relativePath = path.relative(workDir, filePath);
-    const { data: blob } = await octokit.rest.git.createBlob({ owner, repo, content, encoding: 'utf-8' });
+    const { data: blob } = await octokit.rest.git.createBlob({
+      owner,
+      repo,
+      content,
+      encoding: 'utf-8',
+    });
     treeItems.push({ path: relativePath, mode: '100644', type: 'blob', sha: blob.sha });
     committedFiles.push(relativePath);
   }
@@ -221,7 +227,7 @@ export async function createBootstrapPR(
       throw new Error(
         `Your test suite was committed to branch '${branchName}', but GitHub blocked the PR creation. ` +
           `Enable it under Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests", ` +
-          `then re-run — or open a PR from that branch manually. Nothing was lost.`,
+          `then re-run — or open a PR from that branch manually. Nothing was lost.`
       );
     }
     throw err;

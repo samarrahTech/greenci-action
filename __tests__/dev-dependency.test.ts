@@ -45,26 +45,62 @@ describe('savePlaywrightDevDependency', () => {
   afterEach(() => fs.rmSync(workDir, { recursive: true, force: true }));
 
   it.each([
-    ['package-lock.json', NPM_LOCK, '{ "lockfileVersion": 3, "packages": { "pw": {} } }', 'npm', ['install', '-D', '@playwright/test@1.65.0', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund']],
-    ['pnpm-lock.yaml', "lockfileVersion: '9.0'\n", "lockfileVersion: '9.0'\npw: 1\n", 'pnpm', ['add', '-D', '@playwright/test@1.65.0', '--lockfile-only', '--ignore-scripts']],
-    ['bun.lock', '{ "lockfileVersion": 1 }', '{ "lockfileVersion": 1, "pw": 1 }', 'bun', ['add', '-d', '@playwright/test@1.65.0', '--lockfile-only', '--ignore-scripts']],
-  ])('with %s: changes package.json and the lockfile only, at the version the tests ran on', async (lockfile, was, becomes, tool, args) => {
-    write(lockfile, was);
-    managerWrites({ [lockfile]: becomes });
+    [
+      'package-lock.json',
+      NPM_LOCK,
+      '{ "lockfileVersion": 3, "packages": { "pw": {} } }',
+      'npm',
+      [
+        'install',
+        '-D',
+        '@playwright/test@1.65.0',
+        '--package-lock-only',
+        '--ignore-scripts',
+        '--no-audit',
+        '--no-fund',
+      ],
+    ],
+    [
+      'pnpm-lock.yaml',
+      "lockfileVersion: '9.0'\n",
+      "lockfileVersion: '9.0'\npw: 1\n",
+      'pnpm',
+      ['add', '-D', '@playwright/test@1.65.0', '--lockfile-only', '--ignore-scripts'],
+    ],
+    [
+      'bun.lock',
+      '{ "lockfileVersion": 1 }',
+      '{ "lockfileVersion": 1, "pw": 1 }',
+      'bun',
+      ['add', '-d', '@playwright/test@1.65.0', '--lockfile-only', '--ignore-scripts'],
+    ],
+  ])(
+    'with %s: changes package.json and the lockfile only, at the version the tests ran on',
+    async (lockfile, was, becomes, tool, args) => {
+      write(lockfile, was);
+      managerWrites({ [lockfile]: becomes });
 
-    const outcome = await savePlaywrightDevDependency(workDir);
+      const outcome = await savePlaywrightDevDependency(workDir);
 
-    expect(exec.exec).toHaveBeenCalledWith(tool, args, expect.objectContaining({ cwd: workDir }));
-    expect(outcome.status).toBe('saved');
-    expect(outcome.files.map((f) => path.relative(workDir, f.path)).sort()).toEqual(['package.json', lockfile].sort());
-    // What each file held before travels with it, so the caller can compare it with the default branch.
-    expect(outcome.files.find((f) => f.path.endsWith('package.json'))!.before.toString()).toBe(PKG);
-    expect(outcome.files.find((f) => f.path.endsWith(lockfile))!.before.toString()).toBe(was);
-  });
+      expect(exec.exec).toHaveBeenCalledWith(tool, args, expect.objectContaining({ cwd: workDir }));
+      expect(outcome.status).toBe('saved');
+      expect(outcome.files.map((f) => path.relative(workDir, f.path)).sort()).toEqual(
+        ['package.json', lockfile].sort()
+      );
+      // What each file held before travels with it, so the caller can compare it with the default branch.
+      expect(outcome.files.find((f) => f.path.endsWith('package.json'))!.before.toString()).toBe(
+        PKG
+      );
+      expect(outcome.files.find((f) => f.path.endsWith(lockfile))!.before.toString()).toBe(was);
+    }
+  );
 
   it('uses lockfile-only mode on Yarn 2+, detected by .yarnrc.yml or packageManager', async () => {
     for (const marker of ['yarnrc', 'packageManager']) {
-      write('package.json', marker === 'packageManager' ? '{ "name": "app", "packageManager": "yarn@4.5.0" }' : PKG);
+      write(
+        'package.json',
+        marker === 'packageManager' ? '{ "name": "app", "packageManager": "yarn@4.5.0" }' : PKG
+      );
       if (marker === 'yarnrc') write('.yarnrc.yml', 'nodeLinker: node-modules');
       else fs.rmSync(path.join(workDir, '.yarnrc.yml'), { force: true });
       write('yarn.lock', '__metadata:\n  version: 8\n');
@@ -73,7 +109,10 @@ describe('savePlaywrightDevDependency', () => {
       expect(outcome.status).toBe('saved');
     }
     for (const [tool, args] of (exec.exec as jest.Mock).mock.calls) {
-      expect([tool, args]).toEqual(['yarn', ['add', '-D', '@playwright/test@1.65.0', '--mode=update-lockfile']]);
+      expect([tool, args]).toEqual([
+        'yarn',
+        ['add', '-D', '@playwright/test@1.65.0', '--mode=update-lockfile'],
+      ]);
     }
   });
 
@@ -81,7 +120,11 @@ describe('savePlaywrightDevDependency', () => {
     write('.git/HEAD', 'ref: refs/heads/main');
     managerWrites({});
     const outcome = await savePlaywrightDevDependency(workDir);
-    expect(exec.exec).toHaveBeenCalledWith('npm', ['pkg', 'set', 'devDependencies.@playwright/test=^1.65.0'], expect.anything());
+    expect(exec.exec).toHaveBeenCalledWith(
+      'npm',
+      ['pkg', 'set', 'devDependencies.@playwright/test=^1.65.0'],
+      expect.anything()
+    );
     expect(outcome.status).toBe('saved');
     expect(outcome.files.map((f) => path.basename(f.path))).toEqual(['package.json']);
     expect(exists('package-lock.json')).toBe(false);
@@ -110,8 +153,18 @@ describe('savePlaywrightDevDependency', () => {
 
   it.each([
     ['Yarn 1 (no lockfile-only mode)', { 'yarn.lock': '# yarn lockfile v1\n' }],
-    ["a Yarn Plug'n'Play repo", { 'yarn.lock': '__metadata:\n  version: 8\n', '.yarnrc.yml': 'x: 1', '.pnp.cjs': '' }],
-    ['a Yarn zero-install repo', { 'yarn.lock': '__metadata:\n  version: 8\n', '.yarnrc.yml': 'x: 1', '.yarn/cache/a.zip': '' }],
+    [
+      "a Yarn Plug'n'Play repo",
+      { 'yarn.lock': '__metadata:\n  version: 8\n', '.yarnrc.yml': 'x: 1', '.pnp.cjs': '' },
+    ],
+    [
+      'a Yarn zero-install repo',
+      {
+        'yarn.lock': '__metadata:\n  version: 8\n',
+        '.yarnrc.yml': 'x: 1',
+        '.yarn/cache/a.zip': '',
+      },
+    ],
     ["Bun's binary lockfile", { 'bun.lockb': 'binary' }],
   ])('leaves %s alone and runs nothing', async (_name, files) => {
     for (const [f, content] of Object.entries(files)) write(f, content);
@@ -123,12 +176,16 @@ describe('savePlaywrightDevDependency', () => {
 
   it('puts every file back, and says why, when the package manager fails', async () => {
     write('package-lock.json', NPM_LOCK);
-    (exec.exec as jest.Mock).mockImplementation(async (_t: string, _a: string[], opts: { listeners: { stderr: (d: Buffer) => void } }) => {
-      write('package.json', '{ "half": "written" }');
-      write('package-lock.json', 'half');
-      opts.listeners.stderr(Buffer.from('npm error code E401\nnpm error Incorrect or missing password.\n'));
-      return 1;
-    });
+    (exec.exec as jest.Mock).mockImplementation(
+      async (_t: string, _a: string[], opts: { listeners: { stderr: (d: Buffer) => void } }) => {
+        write('package.json', '{ "half": "written" }');
+        write('package-lock.json', 'half');
+        opts.listeners.stderr(
+          Buffer.from('npm error code E401\nnpm error Incorrect or missing password.\n')
+        );
+        return 1;
+      }
+    );
 
     const outcome = await savePlaywrightDevDependency(workDir);
 
@@ -163,18 +220,31 @@ describe('savePlaywrightDevDependency', () => {
   it('backs out when the dependency was written as a workspace catalog reference', async () => {
     write('pnpm-lock.yaml', "lockfileVersion: '9.0'\n");
     write('pnpm-workspace.yaml', 'packages: []\n');
-    managerWrites({ 'pnpm-lock.yaml': "lockfileVersion: '9.0'\npw: 1\n", 'pnpm-workspace.yaml': 'packages: []\ncatalog: {}\n' }, 'catalog:');
+    managerWrites(
+      {
+        'pnpm-lock.yaml': "lockfileVersion: '9.0'\npw: 1\n",
+        'pnpm-workspace.yaml': 'packages: []\ncatalog: {}\n',
+      },
+      'catalog:'
+    );
 
     const outcome = await savePlaywrightDevDependency(workDir);
 
     expect(outcome.status).toBe('manual');
-    expectUntouched({ 'package.json': PKG, 'pnpm-workspace.yaml': 'packages: []\n', 'pnpm-lock.yaml': "lockfileVersion: '9.0'\n" });
+    expectUntouched({
+      'package.json': PKG,
+      'pnpm-workspace.yaml': 'packages: []\n',
+      'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
+    });
   });
 
   it('backs out when the command changed a file this PR would not carry', async () => {
     write('pnpm-lock.yaml', "lockfileVersion: '9.0'\n");
     write('pnpm-workspace.yaml', 'packages: []\n');
-    managerWrites({ 'pnpm-lock.yaml': "lockfileVersion: '9.0'\npw: 1\n", 'pnpm-workspace.yaml': 'packages: []\nextra: 1\n' });
+    managerWrites({
+      'pnpm-lock.yaml': "lockfileVersion: '9.0'\npw: 1\n",
+      'pnpm-workspace.yaml': 'packages: []\nextra: 1\n',
+    });
 
     const outcome = await savePlaywrightDevDependency(workDir);
 
@@ -204,7 +274,9 @@ describe('gitBlobSha', () => {
     try {
       const content = Buffer.from('{\n  "name": "app"\n}\n');
       fs.writeFileSync(path.join(dir, 'f'), content);
-      const expected = execFileSync('git', ['hash-object', path.join(dir, 'f')], { encoding: 'utf-8' }).trim();
+      const expected = execFileSync('git', ['hash-object', path.join(dir, 'f')], {
+        encoding: 'utf-8',
+      }).trim();
       expect(gitBlobSha(content)).toBe(expected);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });

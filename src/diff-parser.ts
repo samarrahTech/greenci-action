@@ -28,10 +28,7 @@ export function getPRContext(): PRContext {
   };
 }
 
-export async function getChangedFiles(
-  token: string,
-  prContext: PRContext
-): Promise<ChangedFile[]> {
+export async function getChangedFiles(token: string, prContext: PRContext): Promise<ChangedFile[]> {
   const octokit = github.getOctokit(token);
 
   const files: ChangedFile[] = [];

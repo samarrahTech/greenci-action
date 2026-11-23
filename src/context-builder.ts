@@ -16,10 +16,7 @@ const ROUTE_PATTERNS = [
   /routes?\//i,
 ];
 
-const COMPONENT_PATTERNS = [
-  /components?\//i,
-  /src\/.*\.(tsx|jsx)$/,
-];
+const COMPONENT_PATTERNS = [/components?\//i, /src\/.*\.(tsx|jsx)$/];
 
 const API_PATTERNS = [
   // Next.js API routes
@@ -55,10 +52,12 @@ export function extractRoutes(files: ChangedFile[]): RouteChange[] {
       if (match) {
         let routePath = match[1] || file.filename;
         // Convert file path to route path
-        routePath = '/' + routePath
-          .replace(/\/page$/, '')
-          .replace(/\/index$/, '')
-          .replace(/\[(.+?)\]/g, ':$1');
+        routePath =
+          '/' +
+          routePath
+            .replace(/\/page$/, '')
+            .replace(/\/index$/, '')
+            .replace(/\[(.+?)\]/g, ':$1');
 
         routes.push({
           path: routePath,

@@ -15,29 +15,45 @@ function booleanInput(name: string, safe: boolean, whenSafe: string): boolean {
   core.warning(
     raw === ''
       ? `${name} was passed an empty value (an undefined variable?) — ${whenSafe}`
-      : `${name} must be 'true' or 'false' — ${whenSafe}`,
+      : `${name} must be 'true' or 'false' — ${whenSafe}`
   );
   return safe;
 }
 
 export function getConfig(): ActionConfig {
   const provider = core.getInput('llm-provider') || 'greenci';
-  const validProviders: LLMProvider[] = ['greenci', 'anthropic', 'openai', 'bedrock', 'azure-openai', 'ollama'];
+  const validProviders: LLMProvider[] = [
+    'greenci',
+    'anthropic',
+    'openai',
+    'bedrock',
+    'azure-openai',
+    'ollama',
+  ];
 
   if (!validProviders.includes(provider as LLMProvider)) {
-    throw new Error(`Invalid LLM provider: ${provider}. Must be one of: ${validProviders.join(', ')}`);
+    throw new Error(
+      `Invalid LLM provider: ${provider}. Must be one of: ${validProviders.join(', ')}`
+    );
   }
 
   const mode = (core.getInput('mode') || 'generate') as OperationMode;
-  if (mode !== 'generate' && mode !== 'generate-only' && mode !== 'migrate' && mode !== 'bootstrap') {
-    throw new Error(`Invalid mode: ${mode}. Must be 'generate', 'generate-only', 'migrate', or 'bootstrap'.`);
+  if (
+    mode !== 'generate' &&
+    mode !== 'generate-only' &&
+    mode !== 'migrate' &&
+    mode !== 'bootstrap'
+  ) {
+    throw new Error(
+      `Invalid mode: ${mode}. Must be 'generate', 'generate-only', 'migrate', or 'bootstrap'.`
+    );
   }
 
   const journeys = core.getInput('journeys') || '';
   if (mode === 'bootstrap' && !journeys.trim()) {
     throw new Error(
       "mode 'bootstrap' requires the `journeys` input — one critical user journey per line, e.g.\n" +
-        'journeys: |\n  Sign in with email and password\n  Post a new job listing and reach the payment step',
+        'journeys: |\n  Sign in with email and password\n  Post a new job listing and reach the payment step'
     );
   }
 

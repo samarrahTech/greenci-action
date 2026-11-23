@@ -16,18 +16,30 @@ describe('unchangedOnDefaultBranch', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (github.getOctokit as jest.Mock).mockReturnValue({
-      rest: { repos: { get: jest.fn().mockResolvedValue({ data: { default_branch: 'trunk' } }), getContent } },
+      rest: {
+        repos: {
+          get: jest.fn().mockResolvedValue({ data: { default_branch: 'trunk' } }),
+          getContent,
+        },
+      },
     });
   });
 
   it('is true when the default branch holds exactly what the checkout had', async () => {
     getContent.mockResolvedValue({ data: { type: 'file', sha: gitBlobSha(before) } });
     expect(await unchangedOnDefaultBranch('t', 'o', 'r', '/work', files)).toBe(true);
-    expect(getContent).toHaveBeenCalledWith({ owner: 'o', repo: 'r', path: 'sub/package.json', ref: 'trunk' });
+    expect(getContent).toHaveBeenCalledWith({
+      owner: 'o',
+      repo: 'r',
+      path: 'sub/package.json',
+      ref: 'trunk',
+    });
   });
 
   it('is false when the default branch has other content (another branch, a merge during the run, CRLF)', async () => {
-    getContent.mockResolvedValue({ data: { type: 'file', sha: gitBlobSha(Buffer.from('{ "name": "app", "x": 1 }\n')) } });
+    getContent.mockResolvedValue({
+      data: { type: 'file', sha: gitBlobSha(Buffer.from('{ "name": "app", "x": 1 }\n')) },
+    });
     expect(await unchangedOnDefaultBranch('t', 'o', 'r', '/work', files)).toBe(false);
   });
 

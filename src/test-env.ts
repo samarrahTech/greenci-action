@@ -61,7 +61,7 @@ export function isSensitiveEnvName(name: string): boolean {
  */
 export function buildTestEnv(
   parentEnv: NodeJS.ProcessEnv,
-  overrides: Record<string, string> = {},
+  overrides: Record<string, string> = {}
 ): Record<string, string> {
   const env: Record<string, string> = {};
 

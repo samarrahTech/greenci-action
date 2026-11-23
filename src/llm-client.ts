@@ -1,5 +1,13 @@
 import * as core from '@actions/core';
-import { ActionConfig, ChangeContext, GeneratedTest, GenerateResult, HealVerdict, ILLMClient, SelfHealRequest } from './types';
+import {
+  ActionConfig,
+  ChangeContext,
+  GeneratedTest,
+  GenerateResult,
+  HealVerdict,
+  ILLMClient,
+  SelfHealRequest,
+} from './types';
 import { AnthropicClient } from './providers/anthropic';
 import { OpenAIClient } from './providers/openai';
 
@@ -34,7 +42,7 @@ export function createLLMClient(config: ActionConfig): ILLMClient {
       // leave their environment without an explicit opt-in.
       throw new Error(
         `LLM provider '${config.llmProvider}' is not supported yet. ` +
-          `Use 'greenci' (hosted), or BYO-LLM with 'anthropic' or 'openai'.`,
+          `Use 'greenci' (hosted), or BYO-LLM with 'anthropic' or 'openai'.`
       );
     default:
       throw new Error(`Unknown LLM provider: ${config.llmProvider}`);
@@ -51,7 +59,11 @@ async function readErrorBody(response: Response): Promise<string> {
 }
 
 class GreenCIClient implements ILLMClient {
-  async migrateTest(cypressSource: string, staticConversion: string, config: ActionConfig): Promise<string> {
+  async migrateTest(
+    cypressSource: string,
+    staticConversion: string,
+    config: ActionConfig
+  ): Promise<string> {
     core.info('Calling GreenCI API for migration refinement');
 
     try {
@@ -92,28 +104,29 @@ class GreenCIClient implements ILLMClient {
         .filter(Boolean)
         .join('\n');
 
-      const post = () => fetch(`${config.greenCIApiUrl}/v1/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify({
-          context: {
-            diff,
-            changedFiles: context.modifiedFiles.map((f) => f.filename),
-            routes: context.routes.map((r) => r.path),
-            components: context.components.map((c) => c.name),
-            apis: context.apiEndpoints.map((e) => `${e.method} ${e.path}`),
-            existingTests: context.existingTests,
+      const post = () =>
+        fetch(`${config.greenCIApiUrl}/v1/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.apiKey}`,
           },
-          config: {
-            baseUrl: config.baseUrl,
-            testDir: config.testDir,
-            model: config.llmModel || undefined,
-          },
-        }),
-      });
+          body: JSON.stringify({
+            context: {
+              diff,
+              changedFiles: context.modifiedFiles.map((f) => f.filename),
+              routes: context.routes.map((r) => r.path),
+              components: context.components.map((c) => c.name),
+              apis: context.apiEndpoints.map((e) => `${e.method} ${e.path}`),
+              existingTests: context.existingTests,
+            },
+            config: {
+              baseUrl: config.baseUrl,
+              testDir: config.testDir,
+              model: config.llmModel || undefined,
+            },
+          }),
+        });
 
       // 502 NO_TESTS_GENERATED means the model answered without usable test
       // code (a real decline is a 200 with `skipped`). That is usually a
@@ -133,11 +146,14 @@ class GreenCIClient implements ILLMClient {
         }
         throw new Error(
           `GreenCI test generation failed (HTTP ${response.status})${body ? `: ${body}` : ''}. ` +
-            `Check that your greenci-api-key is valid and your plan has remaining quota. No tests were generated.`,
+            `Check that your greenci-api-key is valid and your plan has remaining quota. No tests were generated.`
         );
       }
 
-      const data = (await response.json()) as { tests: GeneratedTest[]; skipped?: { reason?: string } };
+      const data = (await response.json()) as {
+        tests: GeneratedTest[];
+        skipped?: { reason?: string };
+      };
       if (data.tests.length === 0 && data.skipped?.reason) {
         return { tests: [], skippedReason: data.skipped.reason };
       }
@@ -146,7 +162,9 @@ class GreenCIClient implements ILLMClient {
       if (error instanceof Error && error.message.startsWith('GreenCI test generation failed')) {
         throw error;
       }
-      throw new Error(`GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`);
+      throw new Error(
+        `GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`
+      );
     }
   }
 
@@ -154,9 +172,11 @@ class GreenCIClient implements ILLMClient {
     journeys: string[],
     pages: { url: string; html: string }[],
     config: ActionConfig,
-    existingTests?: string[],
+    existingTests?: string[]
   ): Promise<GeneratedTest[]> {
-    core.info(`Calling GreenCI API at ${config.greenCIApiUrl}/v1/bootstrap (${journeys.length} journeys, ${pages.length} pages)`);
+    core.info(
+      `Calling GreenCI API at ${config.greenCIApiUrl}/v1/bootstrap (${journeys.length} journeys, ${pages.length} pages)`
+    );
 
     try {
       const response = await fetch(`${config.greenCIApiUrl}/v1/bootstrap`, {
@@ -179,7 +199,7 @@ class GreenCIClient implements ILLMClient {
         const body = await readErrorBody(response);
         throw new Error(
           `GreenCI bootstrap failed (HTTP ${response.status})${body ? `: ${body}` : ''}. ` +
-            `Check that your greenci-api-key is valid and your plan has remaining quota. No tests were generated.`,
+            `Check that your greenci-api-key is valid and your plan has remaining quota. No tests were generated.`
         );
       }
 
@@ -189,7 +209,9 @@ class GreenCIClient implements ILLMClient {
       if (error instanceof Error && error.message.startsWith('GreenCI bootstrap failed')) {
         throw error;
       }
-      throw new Error(`GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`);
+      throw new Error(
+        `GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`
+      );
     }
   }
 

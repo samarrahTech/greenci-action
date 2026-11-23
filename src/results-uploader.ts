@@ -50,20 +50,34 @@ export function clipStart(s: string, max: number): string {
  * first, so they are the ones kept when there are more than fit.
  */
 export function buildVerdicts(report: RunReport): UploadedVerdict[] {
-  const clip = (v: { filename: unknown; classification: unknown; reasoning: unknown }): UploadedVerdict => ({
+  const clip = (v: {
+    filename: unknown;
+    classification: unknown;
+    reasoning: unknown;
+  }): UploadedVerdict => ({
     filename: clipStart(text(v.filename), MAX_FILENAME),
     // The API rejects the whole report on a classification over its limit; it does not clip this field.
     classification: text(v.classification).slice(0, MAX_CLASSIFICATION) || 'unknown',
     reasoning: clipEnd(text(v.reasoning), MAX_REASONING),
   });
   const all = [
-    ...(report.suspectedBugs ?? []).map((b) => clip({ filename: b.filename, classification: 'app-bug-suspected', reasoning: b.reasoning })),
+    ...(report.suspectedBugs ?? []).map((b) =>
+      clip({ filename: b.filename, classification: 'app-bug-suspected', reasoning: b.reasoning })
+    ),
     ...(report.healedTests ?? [])
       .filter((t) => t.verdict)
-      .map((t) => clip({ filename: t.filename, classification: t.verdict!.classification, reasoning: t.verdict!.reasoning })),
+      .map((t) =>
+        clip({
+          filename: t.filename,
+          classification: t.verdict!.classification,
+          reasoning: t.verdict!.reasoning,
+        })
+      ),
   ];
   if (all.length > MAX_VERDICTS) {
-    core.info(`📊 ${all.length} verdicts this run; the dashboard keeps ${MAX_VERDICTS} (suspected app bugs first). The PR report lists all of them.`);
+    core.info(
+      `📊 ${all.length} verdicts this run; the dashboard keeps ${MAX_VERDICTS} (suspected app bugs first). The PR report lists all of them.`
+    );
   }
   return all.slice(0, MAX_VERDICTS);
 }
@@ -77,7 +91,7 @@ export async function uploadResults(
   apiUrl: string,
   apiKey: string,
   prContext: PRContext,
-  report: RunReport,
+  report: RunReport
 ): Promise<void> {
   const verdicts = buildVerdicts(report);
 

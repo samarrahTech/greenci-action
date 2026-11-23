@@ -22,7 +22,8 @@ export interface ActionConfig {
   journeys: string;
 }
 
-export type LLMProvider = 'greenci' | 'anthropic' | 'openai' | 'bedrock' | 'azure-openai' | 'ollama';
+export type LLMProvider =
+  'greenci' | 'anthropic' | 'openai' | 'bedrock' | 'azure-openai' | 'ollama';
 
 export interface ChangedFile {
   filename: string;
@@ -149,12 +150,16 @@ export interface GenerateResult {
 export interface ILLMClient {
   generateTests(context: ChangeContext, config: ActionConfig): Promise<GenerateResult>;
   healTest(request: SelfHealRequest, config: ActionConfig): Promise<GeneratedTest>;
-  migrateTest?(cypressSource: string, staticConversion: string, config: ActionConfig): Promise<string>;
+  migrateTest?(
+    cypressSource: string,
+    staticConversion: string,
+    config: ActionConfig
+  ): Promise<string>;
   bootstrapTests?(
     journeys: string[],
     pages: { url: string; html: string }[],
     config: ActionConfig,
-    existingTests?: string[],
+    existingTests?: string[]
   ): Promise<GeneratedTest[]>;
 }
 

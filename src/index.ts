@@ -40,7 +40,9 @@ async function run(): Promise<void> {
       core.info(
         `🌱 Bootstrap complete: ${outcome.testsPassed}/${outcome.testsGenerated} tests passing` +
           (outcome.prUrl ? ` — PR: ${outcome.prUrl}` : '') +
-          (outcome.rejected.length > 0 ? ` — ${outcome.rejected.length} discarded as unfalsifiable (see warnings)` : ''),
+          (outcome.rejected.length > 0
+            ? ` — ${outcome.rejected.length} discarded as unfalsifiable (see warnings)`
+            : '')
       );
       return;
     }
@@ -57,7 +59,9 @@ async function run(): Promise<void> {
       try {
         prContext = getPRContext();
       } catch {
-        core.info('ℹ️ No PR context — skipping commit and PR comment (migration results are in the output)');
+        core.info(
+          'ℹ️ No PR context — skipping commit and PR comment (migration results are in the output)'
+        );
       }
 
       // Commit converted tests if auto-commit is on
@@ -86,7 +90,9 @@ async function run(): Promise<void> {
       core.setOutput('tests-passed', String(report.converted));
       core.setOutput('tests-failed', String(report.failed));
 
-      core.info(`🌱 GreenCI migration complete: ${report.converted}/${report.totalFiles} files converted`);
+      core.info(
+        `🌱 GreenCI migration complete: ${report.converted}/${report.totalFiles} files converted`
+      );
       return;
     }
 
@@ -157,7 +163,14 @@ async function run(): Promise<void> {
     if (config.apiKey && projectId) {
       const runIdStr = process.env.GITHUB_RUN_ID || 'unknown';
       const testResultsDir = path.join(workDir, 'test-results');
-      await uploadTraces(testResultsDir, config.greenCIApiUrl, config.apiKey, projectId, runIdStr, config.sendPageSnapshot);
+      await uploadTraces(
+        testResultsDir,
+        config.greenCIApiUrl,
+        config.apiKey,
+        projectId,
+        runIdStr,
+        config.sendPageSnapshot
+      );
     }
 
     // 8. Set outputs

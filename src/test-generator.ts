@@ -1,7 +1,23 @@
 import * as core from '@actions/core';
 import { resolveTestPath } from './safe-paths';
-import { ActionConfig, ChangeContext, GeneratedTest, ILLMClient, TestResult, RunReport } from './types';
-import { ensurePlaywright, ensurePlaywrightConfig, ensureAuthSession, runTests, writeTests, appDownResults, type AuthSessionResult, type SessionRenewal } from './test-runner';
+import {
+  ActionConfig,
+  ChangeContext,
+  GeneratedTest,
+  ILLMClient,
+  TestResult,
+  RunReport,
+} from './types';
+import {
+  ensurePlaywright,
+  ensurePlaywrightConfig,
+  ensureAuthSession,
+  runTests,
+  writeTests,
+  appDownResults,
+  type AuthSessionResult,
+  type SessionRenewal,
+} from './test-runner';
 import { healFailedTests } from './self-healer';
 import { readExistingTests, formatExistingTestsForAPI } from './existing-tests';
 import { rejectTautologies } from './assertion-lint';
@@ -80,7 +96,7 @@ export async function generateAndRunTests(
 
   if (writtenTests.length !== generatedTests.length) {
     core.warning(
-      `${generatedTests.length - writtenTests.length} generated test(s) were rejected and not written.`,
+      `${generatedTests.length - writtenTests.length} generated test(s) were rejected and not written.`
     );
   }
 
@@ -118,7 +134,9 @@ export async function generateAndRunTests(
   }
   core.info('🏃 Running tests...');
   const initialResults =
-    auth?.status === 'unreachable' ? appDownResults(writtenTests, auth) : await runTests(writtenTests, config, workDir, session);
+    auth?.status === 'unreachable'
+      ? appDownResults(writtenTests, auth)
+      : await runTests(writtenTests, config, workDir, session);
 
   // 4. Self-heal failed tests
   const failedTests = initialResults
@@ -137,8 +155,17 @@ export async function generateAndRunTests(
   // returns the failed result. Skipping it dropped every failed test from the
   // report, so a run with failures counted 0 failed.
   if (failedTests.length > 0) {
-    if (config.maxRetries > 0) core.info(`🔧 Attempting to heal ${failedTests.length} failed test(s)...`);
-    const healing = await healFailedTests(failedTests, context, config, llmClient, workDir, undefined, session);
+    if (config.maxRetries > 0)
+      core.info(`🔧 Attempting to heal ${failedTests.length} failed test(s)...`);
+    const healing = await healFailedTests(
+      failedTests,
+      context,
+      config,
+      llmClient,
+      workDir,
+      undefined,
+      session
+    );
     healedTests = healing.healed;
     healedResults = healing.results;
     suspectedBugs = healing.suspectedBugs;
@@ -146,10 +173,7 @@ export async function generateAndRunTests(
 
   // 5. Compile final results
   const passedInitial = initialResults.filter((r) => r.passed);
-  const allResults = [
-    ...passedInitial,
-    ...healedResults,
-  ];
+  const allResults = [...passedInitial, ...healedResults];
 
   const totalPassed = allResults.filter((r) => r.passed).length;
   const totalFailed = allResults.filter((r) => !r.passed).length;

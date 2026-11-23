@@ -31,7 +31,9 @@ const report: RunReport = {
       verdict: { classification: 'test-issue', confidence: 0.9, reasoning: 'selector drift' },
     },
   ],
-  suspectedBugs: [{ filename: 'checkout.spec.ts', reasoning: 'API returns 500', error: 'HTTP 500' }],
+  suspectedBugs: [
+    { filename: 'checkout.spec.ts', reasoning: 'API returns 500', error: 'HTTP 500' },
+  ],
 };
 
 describe('uploadResults', () => {
@@ -59,20 +61,28 @@ describe('uploadResults', () => {
     expect(body.suspected_app_bugs).toBe(1);
     // Suspected app bugs first: they are what is kept when the list is capped.
     expect(body.verdicts).toEqual([
-      { filename: 'checkout.spec.ts', classification: 'app-bug-suspected', reasoning: 'API returns 500' },
+      {
+        filename: 'checkout.spec.ts',
+        classification: 'app-bug-suspected',
+        reasoning: 'API returns 500',
+      },
       { filename: 'auth.spec.ts', classification: 'test-issue', reasoning: 'selector drift' },
     ]);
   });
 
   it('warns but does not throw on API failure', async () => {
     (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500, statusText: 'boom' });
-    await expect(uploadResults('https://api.greenci.ai', 'k', prContext, report)).resolves.toBeUndefined();
+    await expect(
+      uploadResults('https://api.greenci.ai', 'k', prContext, report)
+    ).resolves.toBeUndefined();
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Results upload failed'));
   });
 
   it('warns but does not throw on network error', async () => {
     (global.fetch as jest.Mock).mockRejectedValue(new Error('offline'));
-    await expect(uploadResults('https://api.greenci.ai', 'k', prContext, report)).resolves.toBeUndefined();
+    await expect(
+      uploadResults('https://api.greenci.ai', 'k', prContext, report)
+    ).resolves.toBeUndefined();
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Results upload error'));
   });
 });
@@ -95,7 +105,11 @@ describe('verdict limits', () => {
     const big: RunReport = {
       ...report,
       healedTests: healed(400, 'r'.repeat(20000)) as RunReport['healedTests'],
-      suspectedBugs: Array.from({ length: 10 }, (_, i) => ({ filename: `bug-${i}.spec.ts`, reasoning: 'b'.repeat(20000), error: 'e' })),
+      suspectedBugs: Array.from({ length: 10 }, (_, i) => ({
+        filename: `bug-${i}.spec.ts`,
+        reasoning: 'b'.repeat(20000),
+        error: 'e',
+      })),
     };
 
     await uploadResults('https://api.greenci.ai', 'k', prContext, big);
@@ -104,7 +118,11 @@ describe('verdict limits', () => {
     expect(body.length).toBeLessThan(300_000);
     const { verdicts } = JSON.parse(body);
     expect(verdicts).toHaveLength(50);
-    expect(verdicts.slice(0, 10).every((v: { classification: string }) => v.classification === 'app-bug-suspected')).toBe(true);
+    expect(
+      verdicts
+        .slice(0, 10)
+        .every((v: { classification: string }) => v.classification === 'app-bug-suspected')
+    ).toBe(true);
     expect(verdicts.every((v: { reasoning: string }) => v.reasoning.length <= 4096)).toBe(true);
     // The count still reports every suspected bug, capped list or not.
     expect(JSON.parse(body).suspected_app_bugs).toBe(10);
@@ -114,7 +132,13 @@ describe('verdict limits', () => {
     const [v] = buildVerdicts({
       ...report,
       healedTests: [],
-      suspectedBugs: [{ filename: `${'d/'.repeat(400)}checkout.spec.ts`, reasoning: `START${'x'.repeat(5000)}END`, error: 'e' }],
+      suspectedBugs: [
+        {
+          filename: `${'d/'.repeat(400)}checkout.spec.ts`,
+          reasoning: `START${'x'.repeat(5000)}END`,
+          error: 'e',
+        },
+      ],
     });
     expect(v.filename).toHaveLength(512);
     expect(v.filename.startsWith('…')).toBe(true);
@@ -141,8 +165,14 @@ describe('verdict limits', () => {
       ...report,
       suspectedBugs: [],
       healedTests: [
-        ...healed(1, 'r').map((t) => ({ ...t, verdict: { ...t.verdict, classification: 'x'.repeat(200) } })),
-        ...healed(1, 'r').map((t) => ({ ...t, verdict: { ...t.verdict, classification: undefined } })),
+        ...healed(1, 'r').map((t) => ({
+          ...t,
+          verdict: { ...t.verdict, classification: 'x'.repeat(200) },
+        })),
+        ...healed(1, 'r').map((t) => ({
+          ...t,
+          verdict: { ...t.verdict, classification: undefined },
+        })),
       ] as RunReport['healedTests'],
     });
     expect(verdicts[0].classification).toHaveLength(64);
@@ -153,18 +183,38 @@ describe('verdict limits', () => {
     const verdicts = buildVerdicts({
       ...report,
       suspectedBugs: [],
-      healedTests: [...healed(1, ['selector drift', 'label renamed']), ...healed(1, 42)] as RunReport['healedTests'],
+      healedTests: [
+        ...healed(1, ['selector drift', 'label renamed']),
+        ...healed(1, 42),
+      ] as RunReport['healedTests'],
     });
-    expect(verdicts.map((v: { reasoning: string }) => v.reasoning)).toEqual(['selector drift label renamed', '42']);
+    expect(verdicts.map((v: { reasoning: string }) => v.reasoning)).toEqual([
+      'selector drift label renamed',
+      '42',
+    ]);
   });
 
   it('says so in the log when verdicts are left out', () => {
-    buildVerdicts({ ...report, suspectedBugs: [], healedTests: healed(60, 'r') as RunReport['healedTests'] });
-    expect(core.info).toHaveBeenCalledWith(expect.stringContaining('60 verdicts this run; the dashboard keeps 50'));
+    buildVerdicts({
+      ...report,
+      suspectedBugs: [],
+      healedTests: healed(60, 'r') as RunReport['healedTests'],
+    });
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('60 verdicts this run; the dashboard keeps 50')
+    );
   });
 
   it('sends an empty reasoning when the heal verdict came back without one', () => {
-    const [v] = buildVerdicts({ ...report, suspectedBugs: [], healedTests: healed(1, undefined) as RunReport['healedTests'] });
-    expect(v).toEqual({ filename: 'healed-0.spec.ts', classification: 'test-issue', reasoning: '' });
+    const [v] = buildVerdicts({
+      ...report,
+      suspectedBugs: [],
+      healedTests: healed(1, undefined) as RunReport['healedTests'],
+    });
+    expect(v).toEqual({
+      filename: 'healed-0.spec.ts',
+      classification: 'test-issue',
+      reasoning: '',
+    });
   });
 });

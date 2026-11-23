@@ -20,7 +20,13 @@ import {
 } from './playwright-config';
 
 // Tests and callers reach these through the runner.
-export { baseUrlOverrideSource, removeBaseUrlOverride, specFilter, fileFilter, BASE_URL_OVERRIDE_CONFIGS };
+export {
+  baseUrlOverrideSource,
+  removeBaseUrlOverride,
+  specFilter,
+  fileFilter,
+  BASE_URL_OVERRIDE_CONFIGS,
+};
 
 /**
  * Zero-test repos (the bootstrap audience) usually have neither
@@ -32,11 +38,17 @@ export async function ensurePlaywright(workDir: string): Promise<boolean> {
 
   const hasPackage = fs.existsSync(path.join(workDir, 'node_modules', '@playwright', 'test'));
   if (!hasPackage) {
-    core.info('📦 @playwright/test not found in this repo — installing (not saved to package.json)...');
-    await exec.exec('npm', ['install', '--no-save', '--no-audit', '--no-fund', '@playwright/test'], {
-      cwd: workDir,
-      silent: true,
-    });
+    core.info(
+      '📦 @playwright/test not found in this repo — installing (not saved to package.json)...'
+    );
+    await exec.exec(
+      'npm',
+      ['install', '--no-save', '--no-audit', '--no-fund', '@playwright/test'],
+      {
+        cwd: workDir,
+        silent: true,
+      }
+    );
     installed = true;
   }
 
@@ -116,9 +128,16 @@ export function detectDevServer(workDir: string): DevServerHint | null {
   if (!script) return null;
 
   const has = (f: string) => fs.existsSync(path.join(workDir, f));
-  const runner = has('pnpm-lock.yaml') ? 'pnpm' : has('yarn.lock') ? 'yarn' : has('bun.lockb') || has('bun.lock') ? 'bun' : 'npm';
+  const runner = has('pnpm-lock.yaml')
+    ? 'pnpm'
+    : has('yarn.lock')
+      ? 'yarn'
+      : has('bun.lockb') || has('bun.lock')
+        ? 'bun'
+        : 'npm';
   // `npm start` is special-cased by npm; everything else needs `run`.
-  const command = runner === 'npm' && script !== 'start' ? `npm run ${script}` : `${runner} ${script}`;
+  const command =
+    runner === 'npm' && script !== 'start' ? `npm run ${script}` : `${runner} ${script}`;
   return { command };
 }
 
@@ -207,13 +226,15 @@ export function ensureBaseUrlOverride(workDir: string, config: ActionConfig): st
     const name = writeBaseUrlOverride(workDir, configFile);
     if (name && !overrideAnnounced) {
       overrideAnnounced = true;
-      core.info(`⚙️ base-url is set: tests use ${config.baseUrl} with the rest of ${configFile} unchanged`);
+      core.info(
+        `⚙️ base-url is set: tests use ${config.baseUrl} with the rest of ${configFile} unchanged`
+      );
     }
     return name;
   } catch (err) {
     core.warning(
       `Could not apply base-url over ${configFile} (${err instanceof Error ? err.message : String(err)}); ` +
-        `tests run against the baseURL in ${configFile}`,
+        `tests run against the baseURL in ${configFile}`
     );
     return null;
   }
@@ -233,7 +254,7 @@ export function ensurePlaywrightConfig(
   baseUrl: string,
   testDir: string,
   withAuthSetup = false,
-  devServer?: DevServerHint | null,
+  devServer?: DevServerHint | null
 ): string | null {
   if (findPlaywrightConfig(workDir)) return null;
 
@@ -241,7 +262,11 @@ export function ensurePlaywrightConfig(
   fs.writeFileSync(path.join(workDir, 'playwright.config.ts'), config, 'utf-8');
   core.info(
     `⚙️ No Playwright config found — wrote a minimal playwright.config.ts (baseURL: ${baseUrl}` +
-      (devServer ? `, local webServer: ${devServer.command})` : devServer === null ? ', no start script in package.json for a local webServer)' : ')'),
+      (devServer
+        ? `, local webServer: ${devServer.command})`
+        : devServer === null
+          ? ', no start script in package.json for a local webServer)'
+          : ')')
   );
   return config;
 }
@@ -255,7 +280,7 @@ export async function runPlaywrightFile(
   filter: string,
   workDir: string,
   config: ActionConfig,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = process.env
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   let stdout = '';
   let stderr = '';
@@ -284,7 +309,8 @@ export async function runPlaywrightFile(
   return { exitCode, stdout, stderr };
 }
 
-export type AuthSessionStatus = 'ok' | 'skipped' | 'not-wired' | 'failed' | 'no-session-file' | 'unreachable';
+export type AuthSessionStatus =
+  'ok' | 'skipped' | 'not-wired' | 'failed' | 'no-session-file' | 'unreachable';
 export interface AuthSessionResult {
   status: AuthSessionStatus;
   /** Playwright output, for the failed / not-wired / no-session-file / unreachable cases. */
@@ -309,7 +335,15 @@ function readSetupSource(workDir: string, config: ActionConfig): string {
  */
 export function appDownResults(tests: GeneratedTest[], auth: AuthSessionResult): TestResult[] {
   return tests.map((t) =>
-    unreachableResult({ filename: t.filename, passed: false, duration: 0, error: (auth.output ?? '').substring(0, 1200) }, auth.origin ?? ''),
+    unreachableResult(
+      {
+        filename: t.filename,
+        passed: false,
+        duration: 0,
+        error: (auth.output ?? '').substring(0, 1200),
+      },
+      auth.origin ?? ''
+    )
   );
 }
 
@@ -326,15 +360,22 @@ export function appDownResults(tests: GeneratedTest[], auth: AuthSessionResult):
 export async function ensureAuthSession(
   workDir: string,
   config: ActionConfig,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = process.env
 ): Promise<AuthSessionResult> {
   if (!hasTestCredentials(env)) {
-    core.info('🔐 TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will be reported as needing credentials');
+    core.info(
+      '🔐 TEST_USER_EMAIL / TEST_USER_PASSWORD not set — authenticated specs will be reported as needing credentials'
+    );
     return { status: 'skipped' };
   }
 
   core.info(`🔐 Signing in via ${AUTH_SETUP_FILENAME} so authenticated specs have a session...`);
-  const { exitCode, stdout, stderr } = await runPlaywrightFile(fileFilter(AUTH_SETUP_FILENAME), workDir, config, env);
+  const { exitCode, stdout, stderr } = await runPlaywrightFile(
+    fileFilter(AUTH_SETUP_FILENAME),
+    workDir,
+    config,
+    env
+  );
   const output = [stdout, stderr].filter(Boolean).join('\n');
 
   if (exitCode !== 0) {
@@ -343,7 +384,7 @@ export async function ensureAuthSession(
     // for a wiring problem.
     if (/^\s*Error: No tests found/im.test(output)) {
       core.warning(
-        `⚠️ No Playwright project in this repo's config runs ${AUTH_SETUP_FILENAME} — authenticated specs cannot get a session (see PR instructions)`,
+        `⚠️ No Playwright project in this repo's config runs ${AUTH_SETUP_FILENAME} — authenticated specs cannot get a session (see PR instructions)`
       );
       return { status: 'not-wired', output };
     }
@@ -354,11 +395,15 @@ export async function ensureAuthSession(
     // hard-coded port) is not blamed on base-url.
     const down = unreachableThroughout(output, readSetupSource(workDir, config));
     if (down) {
-      core.warning(`🔌 The login setup could not reach the app: nothing answered at ${down}. No spec is run`);
+      core.warning(
+        `🔌 The login setup could not reach the app: nothing answered at ${down}. No spec is run`
+      );
       core.info(`   Setup output:\n${output.substring(0, 800)}`);
       return { status: 'unreachable', origin: down, output };
     }
-    core.warning(`❌ The login setup (${AUTH_SETUP_FILENAME}) could not sign in — authenticated specs will be reported as blocked`);
+    core.warning(
+      `❌ The login setup (${AUTH_SETUP_FILENAME}) could not sign in — authenticated specs will be reported as blocked`
+    );
     core.info(`   Setup output:\n${output.substring(0, 800)}`);
     return { status: 'failed', output };
   }
@@ -366,7 +411,7 @@ export async function ensureAuthSession(
   // elsewhere, or skip on a condition of its own. The file is the contract.
   if (!fs.existsSync(path.join(workDir, STORAGE_STATE_PATH))) {
     core.warning(
-      `⚠️ ${AUTH_SETUP_FILENAME} finished without writing ${STORAGE_STATE_PATH} — authenticated specs cannot get a session (see PR instructions)`,
+      `⚠️ ${AUTH_SETUP_FILENAME} finished without writing ${STORAGE_STATE_PATH} — authenticated specs cannot get a session (see PR instructions)`
     );
     return { status: 'no-session-file', output };
   }
@@ -404,7 +449,11 @@ export function looksSignedOut(error: string | undefined): boolean {
   return !!error && (/\/(log-?in|sign-?in)\b/i.test(error) || /\b401\b/.test(error));
 }
 
-async function renewSession(workDir: string, config: ActionConfig, session: SessionRenewal): Promise<boolean> {
+async function renewSession(
+  workDir: string,
+  config: ActionConfig,
+  session: SessionRenewal
+): Promise<boolean> {
   const sessionFile = path.join(workDir, STORAGE_STATE_PATH);
   const previous = `${sessionFile}.prev`;
   let movedAside = false;
@@ -429,12 +478,16 @@ async function renewSession(workDir: string, config: ActionConfig, session: Sess
     output = err instanceof Error ? err.message : String(err);
   }
   session.stopped = true;
-  core.warning(`⚠️ Signing in again via ${AUTH_SETUP_FILENAME} failed — the rest of this run reuses the earlier session`);
+  core.warning(
+    `⚠️ Signing in again via ${AUTH_SETUP_FILENAME} failed — the rest of this run reuses the earlier session`
+  );
   core.info(`   Setup output:\n${output.substring(0, 800)}`);
   try {
     if (movedAside) fs.renameSync(previous, sessionFile);
   } catch (err) {
-    core.warning(`Could not restore the earlier session: ${err instanceof Error ? err.message : String(err)}`);
+    core.warning(
+      `Could not restore the earlier session: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
   return false;
 }
@@ -466,7 +519,7 @@ export async function writeTests(
   tests: GeneratedTest[],
   workDir: string,
   testDir: string = 'e2e',
-  protect?: ProtectExisting,
+  protect?: ProtectExisting
 ): Promise<string[]> {
   const writtenFiles: string[] = [];
 
@@ -481,7 +534,9 @@ export async function writeTests(
       if (resolved && fs.existsSync(resolved.absolute) && !protect.owned.has(resolved.absolute)) {
         const root = path.resolve(workDir, testDir);
         const to = bootstrapName(resolved.relative, (c) => fs.existsSync(path.join(root, c)));
-        core.warning(`✋ ${resolved.relative} already exists in this repo — writing the generated test as ${to} instead of overwriting it`);
+        core.warning(
+          `✋ ${resolved.relative} already exists in this repo — writing the generated test as ${to} instead of overwriting it`
+        );
         protect.renamed.push({ from: resolved.relative, to });
         test.filename = to;
       }
@@ -582,11 +637,18 @@ function lastNavigation(testSource: string | undefined): string | undefined {
  * page.goto before the failing line (see lastNavigation).
  * The result is at most MAX_PAGE_SNAPSHOT characters.
  */
-export function readPageSnapshot(output: string, workDir: string, specFile?: string): string | undefined {
+export function readPageSnapshot(
+  output: string,
+  workDir: string,
+  specFile?: string
+): string | undefined {
   // Playwright dims this line when FORCE_COLOR is set in the workflow.
   // eslint-disable-next-line no-control-regex
   const plain = output.replace(/\x1b\[[0-9;]*m/g, '');
-  const byTest = new Map<string, { name: string; folder: string; tree: string; navigation?: string }>();
+  const byTest = new Map<
+    string,
+    { name: string; folder: string; tree: string; navigation?: string }
+  >();
   for (const [, rel] of plain.matchAll(/^\s*Error Context:\s*(\S*error-context\.md)\s*$/gm)) {
     const file = path.resolve(workDir, rel);
     if (path.basename(file) !== 'error-context.md' || !isInsideRoot(workDir, file)) continue;
@@ -600,7 +662,10 @@ export function readPageSnapshot(output: string, workDir: string, specFile?: str
     const info = sections.get('Test info');
     const location = info?.match(/^- Location:\s*(\S+?):\d+/m)?.[1];
     if (specFile && location && !sameSpec(workDir, location, specFile)) continue;
-    const tree = sections.get('Page snapshot')?.replace(/^```\w*\s*$/gm, '').trim();
+    const tree = sections
+      .get('Page snapshot')
+      ?.replace(/^```\w*\s*$/gm, '')
+      .trim();
     if (!tree) continue;
     // Playwright names the result folder <spec>-<test>-<project>, so it tells
     // the same test in chromium apart from the same test in firefox. Keyed by
@@ -608,13 +673,18 @@ export function readPageSnapshot(output: string, workDir: string, specFile?: str
     const folder = path.basename(path.dirname(file)).replace(/-retry\d+$/, '');
     const name = info?.match(/^- Name:\s*(.+)$/m)?.[1].trim() ?? folder;
     // a later retry replaces the earlier attempt's page
-    byTest.set(`${name}\u0000${folder}`, { name, folder, tree, navigation: lastNavigation(sections.get('Test source')) });
+    byTest.set(`${name}\u0000${folder}`, {
+      name,
+      folder,
+      tree,
+      navigation: lastNavigation(sections.get('Test source')),
+    });
   }
   if (byTest.size === 0) return undefined;
   // The usual multi-project failure shows the same page in every browser.
   // Send it once: each extra copy takes budget from the other tests' pages.
   const entries = [...byTest.values()].filter(
-    (e, i, all) => all.findIndex((o) => o.name === e.name && o.tree === e.tree) === i,
+    (e, i, all) => all.findIndex((o) => o.name === e.name && o.tree === e.tree) === i
   );
   const labelled = entries.length > 1;
   const repeated = new Set(entries.map((e) => e.name).filter((n, i, all) => all.indexOf(n) !== i));
@@ -622,13 +692,17 @@ export function readPageSnapshot(output: string, workDir: string, specFile?: str
   // would otherwise drop it first on a large page. Name and folder are cut
   // separately so a long test name cannot push the project off the header.
   const headers = entries.map((e) => {
-    const label = repeated.has(e.name) ? `${cut(e.name, 150)} (${cut(e.folder, 45)})` : cut(e.name, 200);
+    const label = repeated.has(e.name)
+      ? `${cut(e.name, 150)} (${cut(e.folder, 45)})`
+      : cut(e.name, 200);
     return (labelled ? `# ${label}\n` : '') + (e.navigation ? `${e.navigation}\n` : '');
   });
   // Headers come out of the budget first, but every tree keeps a usable share.
   const budget = Math.max(
     MIN_TREE_BUDGET,
-    Math.floor((MAX_PAGE_SNAPSHOT - headers.join('').length - 2 * (entries.length - 1)) / entries.length),
+    Math.floor(
+      (MAX_PAGE_SNAPSHOT - headers.join('').length - 2 * (entries.length - 1)) / entries.length
+    )
   );
   const blocks = entries.map((e, i) => headers[i] + fitSnapshot(e.tree, budget));
   return cut(blocks.join('\n\n'), MAX_PAGE_SNAPSHOT);
@@ -641,7 +715,9 @@ export function readPageSnapshot(output: string, workDir: string, specFile?: str
  */
 function sameSpec(workDir: string, location: string, specFile: string): boolean {
   const spec = path.resolve(workDir, specFile);
-  return path.resolve(workDir, location) === spec || spec.endsWith(path.sep + path.normalize(location));
+  return (
+    path.resolve(workDir, location) === spec || spec.endsWith(path.sep + path.normalize(location))
+  );
 }
 
 /** Cut to at most max UTF-16 units without leaving half a surrogate pair, which JSON sends as a lone \\ud83d. */
@@ -662,7 +738,8 @@ function headingSections(text: string): Map<string, string> {
   };
   for (const line of text.split('\n')) {
     const marker = line.match(/^(`{3,})/)?.[1];
-    if (marker && (fence === null || marker.length >= fence.length)) fence = fence === null ? marker : null;
+    if (marker && (fence === null || marker.length >= fence.length))
+      fence = fence === null ? marker : null;
     const heading = fence === null && !marker ? line.match(/^# (.+?)\s*$/)?.[1] : undefined;
     if (heading) {
       flush();
@@ -716,14 +793,28 @@ function fitSnapshot(tree: string, budget: number): string {
     size += lines[i].length + 1;
   }
   // Back in document order, so nesting still reads as a tree.
-  return kept.sort((a, b) => a - b).map((i) => lines[i]).join('\n') + marker;
+  return (
+    kept
+      .sort((a, b) => a - b)
+      .map((i) => lines[i])
+      .join('\n') + marker
+  );
 }
 
-async function runSpec(test: GeneratedTest, filePath: string, config: ActionConfig, workDir: string): Promise<TestResult> {
+async function runSpec(
+  test: GeneratedTest,
+  filePath: string,
+  config: ActionConfig,
+  workDir: string
+): Promise<TestResult> {
   const startTime = Date.now();
 
   try {
-    const { exitCode, stdout, stderr } = await runPlaywrightFile(specFilter(workDir, filePath), workDir, config);
+    const { exitCode, stdout, stderr } = await runPlaywrightFile(
+      specFilter(workDir, filePath),
+      workDir,
+      config
+    );
 
     const duration = Date.now() - startTime;
     const passed = exitCode === 0;
@@ -766,7 +857,7 @@ export async function runTests(
   tests: GeneratedTest[],
   config: ActionConfig,
   workDir: string,
-  session?: SessionRenewal,
+  session?: SessionRenewal
 ): Promise<TestResult[]> {
   const results: TestResult[] = [];
 
@@ -789,13 +880,23 @@ export async function runTests(
     const authed = session !== undefined && !session.stopped && loadsSavedSession(test.code);
     if (authed && session.rotates) await renewSession(workDir, config, session);
     let result = await runSpec(test, filePath, config, workDir);
-    if (authed && !result.passed && looksSignedOut(`${result.error ?? ''}\n${result.stdout ?? ''}`) && !session.rotates && !session.stopped) {
-      core.info(`🔐 ${test.filename}: signing in again and re-running it once, in case the shared session was revoked`);
+    if (
+      authed &&
+      !result.passed &&
+      looksSignedOut(`${result.error ?? ''}\n${result.stdout ?? ''}`) &&
+      !session.rotates &&
+      !session.stopped
+    ) {
+      core.info(
+        `🔐 ${test.filename}: signing in again and re-running it once, in case the shared session was revoked`
+      );
       if (await renewSession(workDir, config, session)) {
         result = await runSpec(test, filePath, config, workDir);
         if (result.passed) {
           session.rotates = true;
-          core.info('🔐 It passed with a fresh session, so this app rotates sessions: each authenticated spec now signs in first');
+          core.info(
+            '🔐 It passed with a fresh session, so this app rotates sessions: each authenticated spec now signs in first'
+          );
         }
       }
     }

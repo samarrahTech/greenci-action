@@ -52,16 +52,24 @@ export function buildGeneratePrompt(context: ChangeContext, baseUrl: string): st
     .join('\n');
 
   parts.push('## Code Changes (Diff)\n```diff\n' + diff + '\n```\n');
-  parts.push('## Changed Files\n' + context.modifiedFiles.map((f) => `- ${f.filename}`).join('\n') + '\n');
+  parts.push(
+    '## Changed Files\n' + context.modifiedFiles.map((f) => `- ${f.filename}`).join('\n') + '\n'
+  );
 
   if (context.routes.length) {
-    parts.push('## Routes/Endpoints\n' + context.routes.map((r) => `- ${r.path}`).join('\n') + '\n');
+    parts.push(
+      '## Routes/Endpoints\n' + context.routes.map((r) => `- ${r.path}`).join('\n') + '\n'
+    );
   }
   if (context.components.length) {
     parts.push('## Components\n' + context.components.map((c) => `- ${c.name}`).join('\n') + '\n');
   }
   if (context.apiEndpoints.length) {
-    parts.push('## API Endpoints\n' + context.apiEndpoints.map((e) => `- ${e.method} ${e.path}`).join('\n') + '\n');
+    parts.push(
+      '## API Endpoints\n' +
+        context.apiEndpoints.map((e) => `- ${e.method} ${e.path}`).join('\n') +
+        '\n'
+    );
   }
   if (context.existingTests?.length) {
     parts.push(
@@ -71,13 +79,13 @@ export function buildGeneratePrompt(context: ChangeContext, baseUrl: string): st
         'Keep the same filename for updated tests so they overwrite correctly.\n\n' +
         '```\n' +
         context.existingTests.join('\n---\n') +
-        '\n```\n',
+        '\n```\n'
     );
   }
 
   parts.push(`## Base URL: ${baseUrl}`);
   parts.push(
-    '\nGenerate comprehensive Playwright e2e tests covering the changed functionality. Focus on user-facing behavior. Return each test as a separate code block with `// filename: <name>.spec.ts` on the first line.',
+    '\nGenerate comprehensive Playwright e2e tests covering the changed functionality. Focus on user-facing behavior. Return each test as a separate code block with `// filename: <name>.spec.ts` on the first line.'
   );
 
   return parts.join('\n');
@@ -115,11 +123,13 @@ export function buildBootstrapPrompt(
   journeys: string[],
   pages: { url: string; html: string }[],
   baseUrl: string,
-  existingTests?: string[],
+  existingTests?: string[]
 ): string {
   const parts: string[] = [];
 
-  parts.push('## Critical User Journeys\n' + journeys.map((j, i) => `${i + 1}. ${j}`).join('\n') + '\n');
+  parts.push(
+    '## Critical User Journeys\n' + journeys.map((j, i) => `${i + 1}. ${j}`).join('\n') + '\n'
+  );
 
   if (pages.length > 0) {
     parts.push('## Rendered Page HTML (ground truth — derive selectors from this)');
@@ -132,13 +142,13 @@ export function buildBootstrapPrompt(
     parts.push(
       '## Existing Tests\nThese are already committed and will NOT be overwritten. Do not generate a test for a journey they already cover, and never reuse one of their filenames; match their conventions:\n```\n' +
         existingTests.join('\n---\n') +
-        '\n```\n',
+        '\n```\n'
     );
   }
 
   parts.push(`## Base URL: ${baseUrl}`);
   parts.push(
-    '\nGenerate the foundational Playwright suite covering every journey above. One code block per file, each starting with `// filename: <name>.spec.ts`.',
+    '\nGenerate the foundational Playwright suite covering every journey above. One code block per file, each starting with `// filename: <name>.spec.ts`.'
   );
 
   return parts.join('\n');
@@ -193,7 +203,7 @@ export function buildHealPrompt(
   error: string,
   attempt: number,
   context?: ChangeContext,
-  pageSnapshot?: string,
+  pageSnapshot?: string
 ): string {
   const parts: string[] = [];
   parts.push('## Failing Test\n' + fenced(testCode, 'typescript'));
@@ -213,7 +223,9 @@ export function buildHealPrompt(
     parts.push('**Note:** Previous fix attempts failed. Try a fundamentally different approach.\n');
   }
 
-  parts.push('Classify the failure, then fix this test. Return the verdict line and the complete corrected test code.');
+  parts.push(
+    'Classify the failure, then fix this test. Return the verdict line and the complete corrected test code.'
+  );
   return parts.join('\n');
 }
 
@@ -329,9 +341,14 @@ export function parseHealVerdict(content: string): { verdict: HealVerdict; rest:
   const rest = content.replace(match[0], '').trim();
   try {
     const raw = JSON.parse(match[1]) as Partial<HealVerdict>;
-    const classification = raw.classification === 'app-bug-suspected' ? 'app-bug-suspected' : 'test-issue';
-    const confidence = typeof raw.confidence === 'number' ? Math.min(Math.max(raw.confidence, 0), 1) : 0.5;
-    return { verdict: { classification, confidence, reasoning: String(raw.reasoning ?? '') }, rest };
+    const classification =
+      raw.classification === 'app-bug-suspected' ? 'app-bug-suspected' : 'test-issue';
+    const confidence =
+      typeof raw.confidence === 'number' ? Math.min(Math.max(raw.confidence, 0), 1) : 0.5;
+    return {
+      verdict: { classification, confidence, reasoning: String(raw.reasoning ?? '') },
+      rest,
+    };
   } catch {
     return { verdict: fallback, rest };
   }

@@ -78,7 +78,12 @@ describe('commitTests', () => {
   });
 
   it('should handle multiple files', async () => {
-    const result = await commitTests('mock-token', prContext, ['/work/e2e/a.spec.ts', '/work/e2e/b.spec.ts'], '/work');
+    const result = await commitTests(
+      'mock-token',
+      prContext,
+      ['/work/e2e/a.spec.ts', '/work/e2e/b.spec.ts'],
+      '/work'
+    );
     expect(result).toHaveLength(2);
     expect(mockOctokit.rest.git.createBlob).toHaveBeenCalledTimes(2);
   });
