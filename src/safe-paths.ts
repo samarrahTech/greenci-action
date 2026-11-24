@@ -133,7 +133,7 @@ export function isInsideRoot(root: string, p: string): boolean {
 }
 
 /** realpath, falling back to the lexical path when it doesn't exist yet. */
-function realPathOrSelf(p: string): string {
+export function realPathOrSelf(p: string): string {
   try {
     return fs.realpathSync.native(p);
   } catch {

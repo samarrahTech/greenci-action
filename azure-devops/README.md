@@ -154,11 +154,11 @@ GreenCI uses the Azure DevOps API to fetch PR file changes. If the build isn't t
 - The commit message ends in `[skip ci]`, and a build of an auto-commit never commits again
 - Azure Repos only; a pipeline that builds a GitHub or Bitbucket repository skips auto-commit
 - Pull requests from forks are skipped: the job token cannot write to the fork
-- `persistCredentials: true` is not needed and is best left off: it stores the job token in `.git/config`. If another step needs it, the task removes the stored token before the first generated test runs and puts it back when the task ends
+- `persistCredentials: true` is not needed and is best left off: it stores the job token in `.git/config`. If it is on, the task deletes the stored token when it starts and does not put it back, so a later step that runs `git` against the remote must pass `$(System.AccessToken)` itself
 
 ### What generated tests can reach
 
-Generated tests are code written by a model and run on your agent. The task removes the job token, secret variables and its own inputs from their environment, and takes a persisted token out of `.git/config` while they run. It is not a sandbox: the tests can still read and change files in the workspace, and with `persistCredentials: true` a process a test left running could read the token once it is restored. Give the job only the permissions it needs.
+Generated tests are code written by a model and run on your agent. The task removes the job token, secret variables and its own inputs from their environment, and deletes a persisted token from the git config of the repository and of its checked-out submodules before they run (git 2.17 or later; with older git the task warns and leaves the token). A token in a file outside `.git` that the config includes is named in a warning and left alone, and so is a config with an `includeIf` section, whose conditional files are not read. Only a repository checked out at the task's working directory is cleaned. With several `checkout` steps that directory is `s/`, which is not a repository, so nothing is cleaned and the task warns: use `persistCredentials: false` there. It is not a sandbox: the tests can still read and change files in the workspace. Give the job only the permissions it needs.
 
 ## Full Example
 

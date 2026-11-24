@@ -575,7 +575,7 @@ function runPlaywrightTest(testFile: string, config: TaskConfig, workDir: string
       // every credential the task holds (job token, secret variables, service
       // connections, the task's own inputs). Never spread process.env here.
       // A job token persisted in .git/config is removed by run() before the
-      // first test and restored at the end of the task.
+      // first test and is not put back.
       env: buildTestEnv(process.env, { BASE_URL: config.baseUrl, CI: 'true' }),
       timeout: 120_000,
     });
@@ -768,7 +768,6 @@ async function commitPassingTests(testFiles: string[], workDir: string): Promise
 // ─── Main ───
 
 async function run(): Promise<void> {
-  let restoreCredentials: () => void = () => {};
   try {
     const config = getTaskConfig();
     const workDir = process.env['BUILD_SOURCESDIRECTORY'] || process.cwd();
@@ -777,6 +776,20 @@ async function run(): Promise<void> {
     console.log(`Mode: ${config.mode}`);
     console.log(`Base URL: ${config.baseUrl}`);
     console.log(`Test dir: ${config.testDir}`);
+
+    // Model-written code will run in the repository. A job token persisted in
+    // the git config (checkout with persistCredentials: true) is deleted
+    // first and not put back: a process a test left running could read it
+    // once restored. The task itself never needs it. Done before anything
+    // else, so later steps see the same config whether or not tests ran.
+    const cleaned = removePersistedCredentials(workDir, (message) => tl.warning(message));
+    if (cleaned.length > 0) {
+      // A warning, not a log line: later steps lose git authentication.
+      tl.warning(
+        `Removed the job token that the checkout step stored in ${cleaned.join(', ')} (persistCredentials: true), so generated tests cannot read it. ` +
+          'It is not put back: a later step that needs git authentication must pass $(System.AccessToken) itself.'
+      );
+    }
 
     // 1. Get changed files
     console.log('📂 Fetching changed files...');
@@ -810,12 +823,6 @@ async function run(): Promise<void> {
       tl.setVariable('testsFailed', '0');
       return;
     }
-
-    // From here on model-written code runs in the repository. A job token
-    // persisted in .git/config (checkout with persistCredentials: true) is
-    // taken out first and put back when the task ends. The task itself never
-    // needs it. A task the agent kills mid-run cannot put it back.
-    restoreCredentials = removePersistedCredentials(workDir, (message) => tl.warning(message));
 
     // 4. Write and run tests
     const writtenTests = writeTests(generatedTests, config, workDir);
@@ -884,7 +891,6 @@ async function run(): Promise<void> {
   } finally {
     // The run-only override config must not be left for later pipeline steps.
     removeBaseUrlOverride(process.env['BUILD_SOURCESDIRECTORY'] || process.cwd());
-    restoreCredentials();
   }
 }
 
