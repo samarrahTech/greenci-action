@@ -13,6 +13,11 @@ import { GeneratedTest } from './types';
 export const STORAGE_STATE_PATH = 'playwright/.auth/user.json';
 export const AUTH_SETUP_FILENAME = 'auth.setup.ts';
 
+/** Where the pipeline writes, reads and runs the sign-in setup. */
+export function authSetupPath(workDir: string, testDir: string): string {
+  return path.join(workDir, testDir, AUTH_SETUP_FILENAME);
+}
+
 /** Do any generated specs opt into an authenticated session? */
 export function needsAuthScaffold(tests: GeneratedTest[]): boolean {
   return tests.some((t) => t.code.includes('storageState'));
@@ -146,7 +151,7 @@ export function writeAuthScaffold(
   testDir: string,
   loginPath: string
 ): AuthScaffoldResult {
-  const filePath = path.join(workDir, testDir, AUTH_SETUP_FILENAME);
+  const filePath = authSetupPath(workDir, testDir);
   if (fs.existsSync(filePath)) {
     return { path: filePath, created: false };
   }

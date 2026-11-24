@@ -6,7 +6,12 @@ import { ActionConfig, GeneratedTest, TestResult } from './types';
 import { resolveTestPath, assertSafeToWrite, isInsideRoot, ALLOWED_SUFFIX } from './safe-paths';
 import type { RenamedTest } from './existing-tests';
 import { buildTestEnv } from './test-env';
-import { AUTH_SETUP_FILENAME, STORAGE_STATE_PATH, hasTestCredentials } from './auth-scaffold';
+import {
+  AUTH_SETUP_FILENAME,
+  STORAGE_STATE_PATH,
+  authSetupPath,
+  hasTestCredentials,
+} from './auth-scaffold';
 import { unreachableResult, unreachableThroughout } from './unreachable';
 import {
   q,
@@ -321,7 +326,7 @@ export interface AuthSessionResult {
 
 function readSetupSource(workDir: string, config: ActionConfig): string {
   try {
-    return fs.readFileSync(path.join(workDir, config.testDir, AUTH_SETUP_FILENAME), 'utf-8');
+    return fs.readFileSync(authSetupPath(workDir, config.testDir), 'utf-8');
   } catch {
     return '';
   }
@@ -348,6 +353,40 @@ export function appDownResults(tests: GeneratedTest[], auth: AuthSessionResult):
 }
 
 /**
+ * Playwright's own "nothing matched the filter" error, at line start, so a
+ * setup (or the app it drives) merely printing those words is not mistaken
+ * for it.
+ */
+const NO_TESTS_FOUND = /^\s*Error: No tests found/im;
+
+/**
+ * Run the sign-in setup. The pipeline writes it to <testDir>/auth.setup.ts,
+ * so that one file is matched by its whole path first: the end-anchored form
+ * also ran packages/x/e2e/auth.setup.ts in a monorepo, and a failure there
+ * was reported as this sign-in failing.
+ *
+ * When that file is absent, or the repo's config does not collect it (the
+ * repo wires a setup kept elsewhere, the test dir is a symlink), the
+ * end-anchored form runs instead, as before.
+ */
+export async function runAuthSetup(
+  workDir: string,
+  config: ActionConfig,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const expected = authSetupPath(workDir, config.testDir);
+  if (fs.existsSync(expected)) {
+    const run = await runPlaywrightFile(specFilter(workDir, expected), workDir, config, env);
+    const notCollected = run.exitCode !== 0 && NO_TESTS_FOUND.test(`${run.stdout}\n${run.stderr}`);
+    if (!notCollected) return run;
+    core.info(
+      `🔐 This repo's Playwright config does not run ${config.testDir}/${AUTH_SETUP_FILENAME}; looking for ${AUTH_SETUP_FILENAME} elsewhere`
+    );
+  }
+  return runPlaywrightFile(fileFilter(AUTH_SETUP_FILENAME), workDir, config, env);
+}
+
+/**
  * Sign in before the suite runs. Specs are executed one file at a time
  * (see runTests), so Playwright project dependencies only produce the session
  * file when the customer's own config routes THAT spec through a project that
@@ -370,19 +409,11 @@ export async function ensureAuthSession(
   }
 
   core.info(`🔐 Signing in via ${AUTH_SETUP_FILENAME} so authenticated specs have a session...`);
-  const { exitCode, stdout, stderr } = await runPlaywrightFile(
-    fileFilter(AUTH_SETUP_FILENAME),
-    workDir,
-    config,
-    env
-  );
+  const { exitCode, stdout, stderr } = await runAuthSetup(workDir, config, env);
   const output = [stdout, stderr].filter(Boolean).join('\n');
 
   if (exitCode !== 0) {
-    // Playwright's own "nothing matched the filter" error, at line start, so a
-    // setup (or the app it drives) merely printing those words is not mistaken
-    // for a wiring problem.
-    if (/^\s*Error: No tests found/im.test(output)) {
+    if (NO_TESTS_FOUND.test(output)) {
       core.warning(
         `⚠️ No Playwright project in this repo's config runs ${AUTH_SETUP_FILENAME} — authenticated specs cannot get a session (see PR instructions)`
       );
@@ -464,7 +495,7 @@ async function renewSession(
       fs.renameSync(sessionFile, previous);
       movedAside = true;
     }
-    const run = await runPlaywrightFile(fileFilter(AUTH_SETUP_FILENAME), workDir, config);
+    const run = await runAuthSetup(workDir, config);
     output = [run.stdout, run.stderr].filter(Boolean).join('\n');
     if (run.exitCode === 0 && fs.existsSync(sessionFile)) {
       try {
