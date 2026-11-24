@@ -178,13 +178,46 @@ describe('GreenCIClient', () => {
       );
     });
 
-    it('should throw on fetch failure', async () => {
-      (global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'));
-      await expect(client.generateTests(mockContext, mockConfig)).rejects.toThrow('Network error');
+    it('should throw on fetch failure, keeping the original error as cause', async () => {
+      const networkError = new Error('Network error');
+      (global.fetch as jest.Mock).mockRejectedValue(networkError);
+      await expect(client.generateTests(mockContext, mockConfig)).rejects.toMatchObject({
+        message: expect.stringContaining('Network error'),
+        cause: networkError,
+      });
+    });
+  });
+
+  describe('bootstrapTests', () => {
+    it('keeps the original network error as cause', async () => {
+      const networkError = new Error('socket hang up');
+      (global.fetch as jest.Mock).mockRejectedValue(networkError);
+      await expect(
+        client.bootstrapTests!(['Sign up'], [{ url: '/', html: '<h1>Hi</h1>' }], mockConfig)
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('socket hang up'),
+        cause: networkError,
+      });
     });
   });
 
   describe('healTest', () => {
+    it('keeps a non-Error rejection as cause', async () => {
+      const rejection = { code: 'ECONNRESET' };
+      (global.fetch as jest.Mock).mockRejectedValue(rejection);
+      await expect(
+        client.healTest(
+          {
+            test: { filename: 'e2e/a.spec.ts', code: 'x', description: 'd', confidence: 1 },
+            error: 'boom',
+            attempt: 1,
+            context: mockContext,
+          },
+          mockConfig
+        )
+      ).rejects.toMatchObject({ cause: rejection });
+    });
+
     it('should return healed test on success', async () => {
       const healedTest = {
         filename: 'e2e/healed.spec.ts',

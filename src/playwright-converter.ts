@@ -191,12 +191,11 @@ export function convertCypressToPlaywright(source: string): {
 } {
   const notes: string[] = [];
   let code = source;
-  let totalCypressPatterns = 0;
 
   // Count total Cypress patterns for confidence scoring
   const cypressPatternCount = (code.match(/cy\.\w+/g) || []).length;
   const cypressEnvCount = (code.match(/Cypress\.env/g) || []).length;
-  totalCypressPatterns = cypressPatternCount + cypressEnvCount;
+  const totalCypressPatterns = cypressPatternCount + cypressEnvCount;
 
   // Apply conversion rules
   for (const rule of CONVERSION_RULES) {
