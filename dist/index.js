@@ -37566,6 +37566,7 @@ exports.ALLOWED_SUFFIX = exports.UnsafeTestPathError = void 0;
 exports.resolveTestPath = resolveTestPath;
 exports.assertSafeToWrite = assertSafeToWrite;
 exports.isInsideRoot = isInsideRoot;
+exports.realPathOrSelf = realPathOrSelf;
 exports.isSafeTestPath = isSafeTestPath;
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
