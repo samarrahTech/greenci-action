@@ -16,7 +16,17 @@ for (const name of Object.keys(process.env)) {
   if (name.startsWith('GIT_')) delete process.env[name];
 }
 // The developer's or agent's own global config must not leak into the checks.
-const ISOLATED = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+// A CI runner has no git identity of its own, and the submodule sources
+// need a commit.
+const ISOLATED = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_AUTHOR_NAME: 'test',
+  GIT_AUTHOR_EMAIL: 'test@example.com',
+  GIT_COMMITTER_NAME: 'test',
+  GIT_COMMITTER_EMAIL: 'test@example.com',
+};
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
