@@ -35019,7 +35019,6 @@ async function getChangedFiles(token, prContext) {
     const octokit = github.getOctokit(token);
     const files = [];
     let page = 1;
-    // eslint-disable-next-line no-constant-condition
     while (true) {
         const response = await octokit.rest.pulls.listFiles({
             owner: prContext.owner,
@@ -35425,7 +35424,7 @@ async function createBootstrapPR(token, owner, repo, testFiles, workDir, prBody)
         if (message.includes('not permitted to create')) {
             throw new Error(`Your test suite was committed to branch '${branchName}', but GitHub blocked the PR creation. ` +
                 `Enable it under Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests", ` +
-                `then re-run — or open a PR from that branch manually. Nothing was lost.`);
+                `then re-run — or open a PR from that branch manually. Nothing was lost.`, { cause: err });
         }
         throw err;
     }
@@ -35817,7 +35816,7 @@ class GreenCIClient {
             if (error instanceof Error && error.message.startsWith('GreenCI test generation failed')) {
                 throw error;
             }
-            throw new Error(`GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`);
+            throw new Error(`GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`, { cause: error });
         }
     }
     async bootstrapTests(journeys, pages, config, existingTests) {
@@ -35850,7 +35849,7 @@ class GreenCIClient {
             if (error instanceof Error && error.message.startsWith('GreenCI bootstrap failed')) {
                 throw error;
             }
-            throw new Error(`GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`);
+            throw new Error(`GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`, { cause: error });
         }
     }
     async healTest(request, config) {
@@ -35891,7 +35890,7 @@ class GreenCIClient {
         catch (error) {
             // Surface the failure to the self-healing loop; retrying the identical
             // failing test would waste retry attempts and hide the API problem.
-            throw error instanceof Error ? error : new Error(String(error));
+            throw error instanceof Error ? error : new Error(String(error), { cause: error });
         }
     }
 }
@@ -36550,11 +36549,10 @@ const CONVERSION_RULES = [
 function convertCypressToPlaywright(source) {
     const notes = [];
     let code = source;
-    let totalCypressPatterns = 0;
     // Count total Cypress patterns for confidence scoring
     const cypressPatternCount = (code.match(/cy\.\w+/g) || []).length;
     const cypressEnvCount = (code.match(/Cypress\.env/g) || []).length;
-    totalCypressPatterns = cypressPatternCount + cypressEnvCount;
+    const totalCypressPatterns = cypressPatternCount + cypressEnvCount;
     // Apply conversion rules
     for (const rule of CONVERSION_RULES) {
         const matches = code.match(rule.pattern);
@@ -38556,7 +38554,7 @@ async function renewSession(workDir, config, session) {
     const sessionFile = path.join(workDir, auth_scaffold_1.STORAGE_STATE_PATH);
     const previous = `${sessionFile}.prev`;
     let movedAside = false;
-    let output = '';
+    let output;
     try {
         // Move the session aside so the setup's own session reuse cannot apply.
         if (fs.existsSync(sessionFile)) {

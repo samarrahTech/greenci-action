@@ -227,7 +227,8 @@ export async function createBootstrapPR(
       throw new Error(
         `Your test suite was committed to branch '${branchName}', but GitHub blocked the PR creation. ` +
           `Enable it under Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests", ` +
-          `then re-run — or open a PR from that branch manually. Nothing was lost.`
+          `then re-run — or open a PR from that branch manually. Nothing was lost.`,
+        { cause: err }
       );
     }
     throw err;

@@ -488,7 +488,7 @@ async function renewSession(
   const sessionFile = path.join(workDir, STORAGE_STATE_PATH);
   const previous = `${sessionFile}.prev`;
   let movedAside = false;
-  let output = '';
+  let output: string;
   try {
     // Move the session aside so the setup's own session reuse cannot apply.
     if (fs.existsSync(sessionFile)) {

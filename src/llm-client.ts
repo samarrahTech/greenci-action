@@ -163,7 +163,8 @@ class GreenCIClient implements ILLMClient {
         throw error;
       }
       throw new Error(
-        `GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`
+        `GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`,
+        { cause: error }
       );
     }
   }
@@ -210,7 +211,8 @@ class GreenCIClient implements ILLMClient {
         throw error;
       }
       throw new Error(
-        `GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`
+        `GreenCI API call failed: ${error instanceof Error ? error.message : error}. No tests were generated.`,
+        { cause: error }
       );
     }
   }
@@ -255,7 +257,7 @@ class GreenCIClient implements ILLMClient {
     } catch (error) {
       // Surface the failure to the self-healing loop; retrying the identical
       // failing test would waste retry attempts and hide the API problem.
-      throw error instanceof Error ? error : new Error(String(error));
+      throw error instanceof Error ? error : new Error(String(error), { cause: error });
     }
   }
 }

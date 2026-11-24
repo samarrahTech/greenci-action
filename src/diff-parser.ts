@@ -34,7 +34,6 @@ export async function getChangedFiles(token: string, prContext: PRContext): Prom
   const files: ChangedFile[] = [];
   let page = 1;
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const response = await octokit.rest.pulls.listFiles({
       owner: prContext.owner,
