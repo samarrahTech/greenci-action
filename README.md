@@ -149,7 +149,40 @@ Mention URL paths in a journey (like `/login`) and GreenCI fetches that page's r
 
 #### Journeys behind a login
 
-When journeys need a signed-in user, the bootstrap PR includes a ready-made `auth.setup.ts` (plus Playwright config wiring) that signs in before the suite and saves the session. To activate those tests: create a **dedicated test user** in your app, add `TEST_USER_EMAIL` and `TEST_USER_PASSWORD` as repository secrets, expose them as `env:` on the GreenCI step, and re-run the workflow. Until the secrets exist, `auth.setup.ts` prints a warning naming them and the authenticated specs fail for lack of a saved session; public specs still run. Credentials stay in your repo and your CI runner — they never touch GreenCI. (OAuth-only/SSO logins can't be automated this way — ask us about the test-login hook pattern.)
+When journeys need a signed-in user, the bootstrap PR includes a ready-made `auth.setup.ts` (plus Playwright config wiring) that signs in before the suite and saves the session. To activate those tests: create a **dedicated test user** in your app, add `TEST_USER_EMAIL` and `TEST_USER_PASSWORD` as repository secrets, expose them as `env:` on the GreenCI step, and re-run the workflow. Until the secrets exist, `auth.setup.ts` prints a warning naming them and the authenticated specs fail for lack of a saved session; public specs still run. Credentials stay in your repo and your CI runner — they never touch GreenCI. (OAuth-only and SSO logins cannot be automated through the form; use a [test-login hook](#oauth-and-sso-sign-in-test-login-hook) instead.)
+
+#### OAuth and SSO sign-in: test-login hook
+
+When sign-in goes through Google, GitHub, Okta or another identity provider, there is no email and password form to fill, and the provider blocks automated browsers. The usual answer is a **test-login hook**: an endpoint in your app, enabled only outside production, that starts a session for one dedicated test user.
+
+**1. Add the endpoint to your app.** For example `POST /api/test-login`:
+
+- Register the route only when a server-side flag is set (for example `ENABLE_TEST_LOGIN=true`), and never set that flag in production. A route that does not exist cannot be called.
+- Require a secret in a header and compare it in constant time. When the secret is not configured or is empty, reject every request: an empty secret must never match an empty header.
+- Start a session for one fixed test user. Do not accept a user id from the request.
+- Set your normal session cookies on the response, exactly as a real sign-in does.
+
+**2. Call it from `auth.setup.ts`.** The file is yours to edit. Replace the form steps, from `await page.goto(...)` through `await page.waitForURL(...)`, with the request below. Keep everything else, including the `storageState` line that follows:
+
+```ts
+const response = await page.request.post('/api/test-login', {
+  headers: { 'x-test-login-secret': PASSWORD! },
+});
+if (!response.ok()) throw new Error(`test-login answered ${response.status()}`);
+if ((await page.context().cookies()).length === 0) {
+  throw new Error('test-login set no cookie, so there is no session to save');
+}
+```
+
+`page.request` shares cookies with the page, so the saved session holds what the endpoint set. If your app keeps its session in `localStorage` instead of a cookie, replace the cookie check: open a page, write the token with `page.evaluate`, and only then let the `storageState` line run. Without a cookie or a stored token the saved session is empty and the signed-in specs run signed out.
+
+**3. Set the two secrets.** GreenCI runs the sign-in setup only when `TEST_USER_EMAIL` and `TEST_USER_PASSWORD` are both set. With a hook, put the test user's email in `TEST_USER_EMAIL` and the hook secret in `TEST_USER_PASSWORD`, and expose both as `env:` on the GreenCI step, as for a form sign-in.
+
+Limits:
+
+- GreenCI does not create the endpoint and cannot check that it is disabled in production. That is your app's code.
+- The app under test must run with the flag on: a preview or staging deployment, or the app started inside the workflow.
+- Pages captured during bootstrap are still fetched signed out, so selectors for signed-in pages come from your journey descriptions and the first test run.
 
 ### Bring Your Own LLM (Anthropic or OpenAI)
 
