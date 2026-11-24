@@ -217,6 +217,45 @@ GreenCI checks whether Chromium already launches before it runs `playwright inst
 
 Place it before the GreenCI step. The key changes every run so the cache always saves the browser that run used, and `restore-keys` restores the newest one; a key tied to your lockfile would go stale when GreenCI installs a newer Playwright for you. If the cached browser cannot launch (for example, a system library is missing), GreenCI installs it as before and logs why.
 
+### Larger suites: workers and sharding
+
+GreenCI runs the specs it generates or heals one file at a time, in one worker, so it can tell you which file failed and why. Workers and shards do not change a GreenCI run. They apply to the job where you run the committed suite yourself with `npx playwright test`.
+
+Before you add such a job, the repository needs:
+
+- `@playwright/test` in `devDependencies` (bootstrap adds it; if GreenCI installed it only for a run, add it yourself);
+- a committed `playwright.config.ts` with `baseURL` (bootstrap proposes one in the pull request).
+
+**Workers.** Playwright runs spec files in parallel and uses half the runner's CPU cores by default: one worker on a 2-core runner, two on a 4-core runner. Set `workers` in your config only after the suite is stable on one worker. GreenCI has run each spec alone, never beside another, so tests that share data in one test account can collide the first time they run in parallel.
+
+**Sharding.** Playwright's `--shard` splits the suite across parallel jobs:
+
+```yaml
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Start your app here, the same way your GreenCI workflow does.
+      - run: npx playwright test --shard=${{ matrix.shard }}/3
+        env:
+          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+```
+
+Playwright assigns whole spec files to shards, so job durations are not equal: one long file stays in one job. Start with two or three shards; more only helps once one shard takes longer than the job's setup.
+
+Suites with signed-in specs: every shard runs the sign-in setup itself, so the shards sign in to the same test account at the same time. If your app limits sign-in attempts, allows one session per user, or rotates refresh tokens on every use, run the signed-in specs in one job without `--shard` and shard only the rest.
+
 ## Cypress → Playwright Migration
 
 GreenCI can automatically migrate your Cypress E2E tests to Playwright:
