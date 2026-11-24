@@ -33438,6 +33438,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AUTH_SETUP_FILENAME = exports.STORAGE_STATE_PATH = void 0;
+exports.authSetupPath = authSetupPath;
 exports.needsAuthScaffold = needsAuthScaffold;
 exports.loginPathFromJourneys = loginPathFromJourneys;
 exports.authSetupSource = authSetupSource;
@@ -33456,6 +33457,10 @@ const path = __importStar(__nccwpck_require__(6928));
  */
 exports.STORAGE_STATE_PATH = 'playwright/.auth/user.json';
 exports.AUTH_SETUP_FILENAME = 'auth.setup.ts';
+/** Where the pipeline writes, reads and runs the sign-in setup. */
+function authSetupPath(workDir, testDir) {
+    return path.join(workDir, testDir, exports.AUTH_SETUP_FILENAME);
+}
 /** Do any generated specs opt into an authenticated session? */
 function needsAuthScaffold(tests) {
     return tests.some((t) => t.code.includes('storageState'));
@@ -33576,7 +33581,7 @@ setup('authenticate', async ({ page }) => {
  * never overwrite their edits (a hardened credentials guard, custom locators).
  */
 function writeAuthScaffold(workDir, testDir, loginPath) {
-    const filePath = path.join(workDir, testDir, exports.AUTH_SETUP_FILENAME);
+    const filePath = authSetupPath(workDir, testDir);
     if (fs.existsSync(filePath)) {
         return { path: filePath, created: false };
     }
@@ -38183,6 +38188,7 @@ exports.ensureBaseUrlOverride = ensureBaseUrlOverride;
 exports.ensurePlaywrightConfig = ensurePlaywrightConfig;
 exports.runPlaywrightFile = runPlaywrightFile;
 exports.appDownResults = appDownResults;
+exports.runAuthSetup = runAuthSetup;
 exports.ensureAuthSession = ensureAuthSession;
 exports.looksSignedOut = looksSignedOut;
 exports.writeTests = writeTests;
@@ -38444,7 +38450,7 @@ async function runPlaywrightFile(filter, workDir, config, env = process.env) {
 }
 function readSetupSource(workDir, config) {
     try {
-        return fs.readFileSync(path.join(workDir, config.testDir, auth_scaffold_1.AUTH_SETUP_FILENAME), 'utf-8');
+        return fs.readFileSync((0, auth_scaffold_1.authSetupPath)(workDir, config.testDir), 'utf-8');
     }
     catch {
         return '';
@@ -38465,6 +38471,33 @@ function appDownResults(tests, auth) {
     }, auth.origin ?? ''));
 }
 /**
+ * Playwright's own "nothing matched the filter" error, at line start, so a
+ * setup (or the app it drives) merely printing those words is not mistaken
+ * for it.
+ */
+const NO_TESTS_FOUND = /^\s*Error: No tests found/im;
+/**
+ * Run the sign-in setup. The pipeline writes it to <testDir>/auth.setup.ts,
+ * so that one file is matched by its whole path first: the end-anchored form
+ * also ran packages/x/e2e/auth.setup.ts in a monorepo, and a failure there
+ * was reported as this sign-in failing.
+ *
+ * When that file is absent, or the repo's config does not collect it (the
+ * repo wires a setup kept elsewhere, the test dir is a symlink), the
+ * end-anchored form runs instead, as before.
+ */
+async function runAuthSetup(workDir, config, env = process.env) {
+    const expected = (0, auth_scaffold_1.authSetupPath)(workDir, config.testDir);
+    if (fs.existsSync(expected)) {
+        const run = await runPlaywrightFile((0, playwright_config_1.specFilter)(workDir, expected), workDir, config, env);
+        const notCollected = run.exitCode !== 0 && NO_TESTS_FOUND.test(`${run.stdout}\n${run.stderr}`);
+        if (!notCollected)
+            return run;
+        core.info(`🔐 This repo's Playwright config does not run ${config.testDir}/${auth_scaffold_1.AUTH_SETUP_FILENAME}; looking for ${auth_scaffold_1.AUTH_SETUP_FILENAME} elsewhere`);
+    }
+    return runPlaywrightFile((0, playwright_config_1.fileFilter)(auth_scaffold_1.AUTH_SETUP_FILENAME), workDir, config, env);
+}
+/**
  * Sign in before the suite runs. Specs are executed one file at a time
  * (see runTests), so Playwright project dependencies only produce the session
  * file when the customer's own config routes THAT spec through a project that
@@ -38480,13 +38513,10 @@ async function ensureAuthSession(workDir, config, env = process.env) {
         return { status: 'skipped' };
     }
     core.info(`🔐 Signing in via ${auth_scaffold_1.AUTH_SETUP_FILENAME} so authenticated specs have a session...`);
-    const { exitCode, stdout, stderr } = await runPlaywrightFile((0, playwright_config_1.fileFilter)(auth_scaffold_1.AUTH_SETUP_FILENAME), workDir, config, env);
+    const { exitCode, stdout, stderr } = await runAuthSetup(workDir, config, env);
     const output = [stdout, stderr].filter(Boolean).join('\n');
     if (exitCode !== 0) {
-        // Playwright's own "nothing matched the filter" error, at line start, so a
-        // setup (or the app it drives) merely printing those words is not mistaken
-        // for a wiring problem.
-        if (/^\s*Error: No tests found/im.test(output)) {
+        if (NO_TESTS_FOUND.test(output)) {
             core.warning(`⚠️ No Playwright project in this repo's config runs ${auth_scaffold_1.AUTH_SETUP_FILENAME} — authenticated specs cannot get a session (see PR instructions)`);
             return { status: 'not-wired', output };
         }
@@ -38533,7 +38563,7 @@ async function renewSession(workDir, config, session) {
             fs.renameSync(sessionFile, previous);
             movedAside = true;
         }
-        const run = await runPlaywrightFile((0, playwright_config_1.fileFilter)(auth_scaffold_1.AUTH_SETUP_FILENAME), workDir, config);
+        const run = await runAuthSetup(workDir, config);
         output = [run.stdout, run.stderr].filter(Boolean).join('\n');
         if (run.exitCode === 0 && fs.existsSync(sessionFile)) {
             try {

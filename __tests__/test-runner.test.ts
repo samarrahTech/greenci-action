@@ -288,12 +288,74 @@ describe('ensureAuthSession', () => {
       expect(r.status).toBe('ok');
       expect(exec.exec).toHaveBeenCalledWith(
         'npx',
-        ['playwright', 'test', '/auth\\.setup\\.ts$', '--reporter=line'],
+        [
+          'playwright',
+          'test',
+          // The whole path of <testDir>/auth.setup.ts, not any auth.setup.ts.
+          expect.stringMatching(/^\^\(\?:\/work(\|[^)]+)?\)\/e2e\/auth\\\.setup\\\.ts\$$/),
+          '--reporter=line',
+        ],
         expect.objectContaining({ cwd: '/work', ignoreReturnCode: true })
       );
       const opts = (exec.exec as jest.Mock).mock.calls[0][2];
       expect(opts.env.TEST_USER_EMAIL).toBe('qa@example.com');
       expect(opts.env).not.toHaveProperty('GITHUB_TOKEN');
+    });
+  });
+
+  const setupFilters = () => (exec.exec as jest.Mock).mock.calls.map((c) => c[1][2] as string);
+
+  it('does not match an auth.setup.ts in another package of a monorepo', async () => {
+    await withCreds(async () => {
+      execWithOutput(0, '1 passed');
+      await ensureAuthSession('/work', mockConfig);
+      const filter = new RegExp(setupFilters()[0], 'i');
+      expect('/work/e2e/auth.setup.ts').toMatch(filter);
+      expect('/work/packages/admin/e2e/auth.setup.ts').not.toMatch(filter);
+      expect('/work/e2e/oauth.setup.ts').not.toMatch(filter);
+    });
+  });
+
+  it('falls back to any auth.setup.ts when the config does not collect the expected file', async () => {
+    // The repo wires a setup kept elsewhere; a stale e2e/auth.setup.ts exists.
+    await withCreds(async () => {
+      let call = 0;
+      (exec.exec as jest.Mock).mockImplementation(
+        async (
+          _c: string,
+          _a: string[],
+          opts: { listeners?: { stderr?: (d: Buffer) => void } }
+        ) => {
+          call += 1;
+          if (call === 1) {
+            opts.listeners?.stderr?.(Buffer.from('Error: No tests found.\n'));
+            return 1;
+          }
+          return 0;
+        }
+      );
+      const r = await ensureAuthSession('/work', mockConfig);
+      expect(r.status).toBe('ok');
+      expect(setupFilters()).toEqual([expect.stringMatching(/^\^/), '/auth\\.setup\\.ts$']);
+    });
+  });
+
+  it('does not run a second setup when the expected one fails for a real reason', async () => {
+    await withCreds(async () => {
+      execWithOutput(1, '  1) [setup] › e2e/auth.setup.ts:16:6 › authenticate\n    TimeoutError');
+      const r = await ensureAuthSession('/work', mockConfig);
+      expect(r.status).toBe('failed');
+      expect(exec.exec).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('uses the end-anchored filter when the repo has no setup file in the test dir', async () => {
+    await withCreds(async () => {
+      execWithOutput(0, '1 passed');
+      mockExistsSync.mockImplementation((p: string) => !p.endsWith('auth.setup.ts'));
+      await ensureAuthSession('/work', mockConfig);
+      expect(setupFilters()).toEqual(['/auth\\.setup\\.ts$']);
+      expect(mockExistsSync).toHaveBeenCalledWith('/work/e2e/auth.setup.ts');
     });
   });
 
@@ -735,6 +797,12 @@ describe('session renewal (GC-089)', () => {
       'auth.setup.ts',
       'expenses.spec.ts',
     ]);
+    // The renewal runs the setup in the test dir by its whole path too.
+    const setupArgs = (exec.exec as jest.Mock).mock.calls
+      .map((c) => c[1][2] as string)
+      .filter((a) => a.includes('auth'));
+    expect(setupArgs).toHaveLength(2);
+    for (const a of setupArgs) expect(a).toMatch(/^\^\(\?:.*\/e2e\/auth\\\.setup\\\.ts\$$/);
     expect(results.map((r) => r.passed)).toEqual([true, true, true]);
     expect(renewal.rotates).toBe(true);
     // The session is moved aside so the setup cannot reuse it.
